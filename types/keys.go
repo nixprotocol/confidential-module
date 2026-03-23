@@ -22,6 +22,8 @@ var (
 	paramsKey = []byte("confidential/params")
 	// Account rotation height: prefix + addr
 	accountRotationHeightPrefix = []byte("confidential/rh/")
+	// Pending-is-zero flag: prefix + addr + "/" + denom
+	pendingIsZeroPrefix = []byte("confidential/pz/")
 )
 
 // Key accessor functions — each returns a fresh slice to avoid append mutation.
@@ -34,6 +36,7 @@ func AccountKeyCounterPrefix() []byte      { return copyBytes(accountKeyCounterP
 func AvailableBalancePrefix() []byte        { return copyBytes(availableBalancePrefix) }
 func PendingBalancePrefix() []byte          { return copyBytes(pendingBalancePrefix) }
 func AccountRotationHeightPrefix() []byte   { return copyBytes(accountRotationHeightPrefix) }
+func PendingIsZeroPrefix() []byte            { return copyBytes(pendingIsZeroPrefix) }
 
 // AccountPubkeyKey returns the store key for an account's public key.
 func AccountPubkeyKey(addr []byte) []byte {
@@ -71,6 +74,17 @@ func PendingBalanceKey(addr []byte, denom string) []byte {
 // block height.
 func AccountRotationHeightKey(addr []byte) []byte {
 	return appendBytes(accountRotationHeightPrefix, addr)
+}
+
+// PendingIsZeroKey returns the store key for the pending-is-zero flag
+// for an account and denomination.
+func PendingIsZeroKey(addr []byte, denom string) []byte {
+	key := make([]byte, len(pendingIsZeroPrefix)+len(addr)+1+len(denom))
+	copy(key, pendingIsZeroPrefix)
+	copy(key[len(pendingIsZeroPrefix):], addr)
+	key[len(pendingIsZeroPrefix)+len(addr)] = '/'
+	copy(key[len(pendingIsZeroPrefix)+len(addr)+1:], denom)
+	return key
 }
 
 // helpers that always allocate fresh slices

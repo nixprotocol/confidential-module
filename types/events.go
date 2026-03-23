@@ -21,6 +21,7 @@ const (
 	AttributeKeyCounter          = "counter"
 	AttributeKeyAuditorPubkey    = "auditor_pubkey"
 	AttributeKeyNewPubkey        = "new_pubkey"
-	AttributeKeyNewCounter       = "new_counter"
-	AttributeKeyDenomCount       = "denom_count"
+	AttributeKeyNewCounter          = "new_counter"
+	AttributeKeyDenomCount          = "denom_count"
+	AttributeKeyAuditorCiphertext   = "auditor_ciphertext"
 )

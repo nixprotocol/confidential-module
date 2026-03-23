@@ -160,6 +160,32 @@ func (k Keeper) GetPendingBalance(ctx context.Context, addr []byte, denom string
 	return kvStore.Get(types.PendingBalanceKey(addr, denom))
 }
 
+// ---------- Pending Is Zero Flag ----------
+
+// SetPendingIsZero stores the pending-is-zero flag for an account and denomination.
+func (k Keeper) SetPendingIsZero(ctx context.Context, addr []byte, denom string, isZero bool) error {
+	kvStore := k.storeService.OpenKVStore(ctx)
+	val := []byte{0}
+	if isZero {
+		val = []byte{1}
+	}
+	return kvStore.Set(types.PendingIsZeroKey(addr, denom), val)
+}
+
+// GetPendingIsZero returns true if the pending balance is known to be zero
+// (i.e., was reset by ApplyPending and no new sends have arrived).
+func (k Keeper) GetPendingIsZero(ctx context.Context, addr []byte, denom string) (bool, error) {
+	kvStore := k.storeService.OpenKVStore(ctx)
+	bz, err := kvStore.Get(types.PendingIsZeroKey(addr, denom))
+	if err != nil {
+		return false, err
+	}
+	if bz == nil {
+		return false, nil
+	}
+	return len(bz) == 1 && bz[0] == 1, nil
+}
+
 // ---------- Rotation Height ----------
 
 // SetRotationHeight stores the block height of the last key rotation for an account.
