@@ -68,8 +68,7 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 			return nil, err
 		}
 		if !isZero {
-			return nil, types.ErrPendingBalanceEmpty.Wrapf(
-				"pending balance for denom %s is not zero; call ApplyPending first", denom)
+			return nil, types.ErrPendingNotZero.Wrapf("denom %s", denom)
 		}
 	}
 

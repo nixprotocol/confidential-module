@@ -19,4 +19,5 @@ var (
 	ErrRotationCooldown       = errors.Register(ModuleName, 1014, "rotation cooldown not elapsed")
 	ErrUnauthorized           = errors.Register(ModuleName, 1015, "unauthorized")
 	ErrInvalidParams          = errors.Register(ModuleName, 1016, "invalid module parameters")
+	ErrPendingNotZero         = errors.Register(ModuleName, 1017, "pending balance is not zero; call ApplyPending first")
 )
