@@ -1,0 +1,122 @@
+package keeper
+
+import (
+	"context"
+
+	"cosmossdk.io/math"
+	"github.com/consensys/gnark-crypto/ecc/bn254"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	elgamal "github.com/nixprotocol/elgamal-bn254"
+
+	"github.com/nixprotocol/confidential-module/types"
+)
+
+// Unshield handles the MsgUnshield message: verifies the DLEQ proof that the
+// ciphertext encrypts the claimed amount, verifies a range proof that the
+// remaining balance is non-negative, subtracts the ciphertext from available
+// balance, and credits x/bank.
+func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*types.MsgUnshieldResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	// 1. Resolve sender address.
+	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	if err != nil {
+		return nil, err
+	}
+	addrBytes := senderAddr.Bytes()
+
+	// 2. Check key registered.
+	if !k.HasRegisteredKey(ctx, addrBytes) {
+		return nil, types.ErrAccountNotRegistered.Wrap("sender has no registered key")
+	}
+
+	// 3. Load and validate params.
+	params, err := k.GetParams(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !isDenomEnabled(params, msg.Denom) {
+		return nil, types.ErrDenomNotEnabled.Wrapf("denom %s is not enabled", msg.Denom)
+	}
+
+	// 4. Parse amount.
+	amt, ok := math.NewIntFromString(msg.Amount)
+	if !ok || !amt.IsPositive() {
+		return nil, types.ErrInvalidAmount.Wrap("amount must be a positive integer")
+	}
+
+	// 5. Check amount fits in MaxTransferBits.
+	if amt.BigInt().BitLen() > params.MaxTransferBits {
+		return nil, types.ErrInvalidAmount.Wrapf("amount exceeds %d-bit limit", params.MaxTransferBits)
+	}
+
+	// 6. Get sender's pubkey.
+	pkBytes, err := k.GetAccountPubkey(ctx, addrBytes)
+	if err != nil {
+		return nil, err
+	}
+	pk, err := unmarshalPublicKey(pkBytes)
+	if err != nil {
+		return nil, types.ErrInvalidPubkey.Wrap(err.Error())
+	}
+
+	// 7. Unmarshal the submitted ciphertext.
+	ct, err := unmarshalCiphertext(msg.Ciphertext)
+	if err != nil {
+		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
+	}
+
+	// 8. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
+	if err := k.verifyDLEQ(ctx, msg.DecryptionProof, &pk, ct, amt.Uint64(), msg.Sender, msg.Denom); err != nil {
+		return nil, err
+	}
+
+	// 9. Compute remaining balance commitment for range proof.
+	// remaining = available - ciphertext
+	// The range proof commitment is the C2 component of the remaining balance,
+	// which serves as a Pedersen commitment with H = pk.
+	availBytes, err := k.GetAvailableBalance(ctx, addrBytes, msg.Denom)
+	if err != nil {
+		return nil, err
+	}
+	availCt, err := unmarshalCiphertext(availBytes)
+	if err != nil {
+		return nil, types.ErrInvalidCiphertext.Wrap("stored available balance: " + err.Error())
+	}
+	remainingCt := elgamal.Sub(availCt, ct)
+
+	// The commitment for range proof: remainingCt.C2 is the Pedersen commitment
+	// to the remaining balance with blinding base H = senderPk.
+	commitments := []bn254.G1Affine{remainingCt.C2}
+
+	// 10. Verify range proof: remaining balance >= 0.
+	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, &pk, params.MaxTransferBits, msg.Sender, "", msg.Denom); err != nil {
+		return nil, err
+	}
+
+	// 11. Update available balance: available -= ciphertext.
+	newAvail, err := subCiphertexts(availBytes, msg.Ciphertext)
+	if err != nil {
+		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
+	}
+	if err := k.SetAvailableBalance(ctx, addrBytes, msg.Denom, newAvail); err != nil {
+		return nil, err
+	}
+
+	// 12. Credit plaintext tokens back to x/bank.
+	coin := sdk.NewCoin(msg.Denom, amt)
+	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, senderAddr, sdk.NewCoins(coin)); err != nil {
+		return nil, types.ErrInsufficientBalance.Wrap(err.Error())
+	}
+
+	// 13. Emit event (plaintext amount is public for unshield operations).
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeUnshield,
+		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
+		sdk.NewAttribute(types.AttributeKeyDenom, msg.Denom),
+		sdk.NewAttribute(types.AttributeKeyAmount, msg.Amount),
+	))
+
+	return &types.MsgUnshieldResponse{}, nil
+}
