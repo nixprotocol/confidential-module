@@ -24,4 +24,6 @@ const (
 	AttributeKeyNewCounter          = "new_counter"
 	AttributeKeyDenomCount          = "denom_count"
 	AttributeKeyAuditorCiphertext   = "auditor_ciphertext"
+	AttributeKeyEncryptedMemo       = "encrypted_memo"
+	AttributeKeyAuditorMemo         = "auditor_memo"
 )

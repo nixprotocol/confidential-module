@@ -18,6 +18,8 @@ type Params struct {
 	MaxTransferBits int `json:"max_transfer_bits"`
 	// RotationCooldown is the minimum number of blocks between key rotations for an account.
 	RotationCooldown uint64 `json:"rotation_cooldown"`
+	// MaxMemoSize is the maximum plaintext memo size in bytes.
+	MaxMemoSize int `json:"max_memo_size"`
 }
 
 // DefaultParams returns sensible default parameters.
@@ -30,6 +32,7 @@ func DefaultParams() Params {
 		EnabledDenoms:         []string{},
 		MaxTransferBits:       40,
 		RotationCooldown:      100,
+		MaxMemoSize:           1024,
 	}
 }
 
@@ -48,6 +51,9 @@ func (p Params) Validate() error {
 		if denom == "" {
 			return fmt.Errorf("enabled denom cannot be empty")
 		}
+	}
+	if p.MaxMemoSize < 0 || p.MaxMemoSize > 4096 {
+		return fmt.Errorf("max_memo_size must be in [0, 4096], got %d", p.MaxMemoSize)
 	}
 	return nil
 }

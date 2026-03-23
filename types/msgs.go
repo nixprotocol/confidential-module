@@ -5,6 +5,12 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
+const (
+	// MaxEncryptedMemoSize is the maximum size of an encrypted memo in bytes.
+	// Plaintext (1024) + ephemeral key (64) + nonce (12) + AES-GCM tag (16) = 1116.
+	MaxEncryptedMemoSize = 1024 + 64 + 12 + 16 // 1116
+)
+
 // Compile-time interface checks.
 var (
 	_ sdk.Msg = &MsgRegisterKey{}
@@ -42,11 +48,12 @@ func (msg *MsgRegisterKey) GetSigners() []sdk.AccAddress {
 // ---------- MsgShield ----------
 
 type MsgShield struct {
-	Sender     string `json:"sender"`
-	Denom      string `json:"denom"`
-	Amount     string `json:"amount"`     // math.Int as string
-	Ciphertext []byte `json:"ciphertext"` // 128 bytes
-	Proof      []byte `json:"proof"`      // DLEQ proof
+	Sender        string `json:"sender"`
+	Denom         string `json:"denom"`
+	Amount        string `json:"amount"`          // math.Int as string
+	Ciphertext    []byte `json:"ciphertext"`      // 128 bytes
+	Proof         []byte `json:"proof"`            // DLEQ proof
+	EncryptedMemo []byte `json:"encrypted_memo,omitempty"` // optional encrypted memo
 }
 
 func (msg *MsgShield) ValidateBasic() error {
@@ -65,6 +72,9 @@ func (msg *MsgShield) ValidateBasic() error {
 	}
 	if len(msg.Proof) == 0 {
 		return ErrInvalidProof.Wrap("proof cannot be empty")
+	}
+	if len(msg.EncryptedMemo) > MaxEncryptedMemoSize {
+		return ErrInvalidMemo.Wrapf("encrypted_memo exceeds max size %d bytes", MaxEncryptedMemoSize)
 	}
 	return nil
 }
@@ -91,6 +101,8 @@ type MsgConfidentialSend struct {
 	RangeProof         []byte `json:"range_proof"`
 	EqualityProof      []byte `json:"equality_proof"`
 	ReceiverKeyCounter uint32 `json:"receiver_key_counter"`
+	EncryptedMemo      []byte `json:"encrypted_memo,omitempty"` // optional memo encrypted to recipient
+	AuditorMemo        []byte `json:"auditor_memo,omitempty"`   // optional memo encrypted to auditor
 }
 
 func (msg *MsgConfidentialSend) ValidateBasic() error {
@@ -120,6 +132,12 @@ func (msg *MsgConfidentialSend) ValidateBasic() error {
 	}
 	if len(msg.EqualityProof) == 0 {
 		return ErrEqualityProofFailed.Wrap("equality proof cannot be empty")
+	}
+	if len(msg.EncryptedMemo) > MaxEncryptedMemoSize {
+		return ErrInvalidMemo.Wrapf("encrypted_memo exceeds max size %d bytes", MaxEncryptedMemoSize)
+	}
+	if len(msg.AuditorMemo) > MaxEncryptedMemoSize {
+		return ErrInvalidMemo.Wrapf("auditor_memo exceeds max size %d bytes", MaxEncryptedMemoSize)
 	}
 	return nil
 }
@@ -168,6 +186,7 @@ type MsgUnshield struct {
 	Ciphertext      []byte `json:"ciphertext"`       // 128 bytes
 	RangeProof      []byte `json:"range_proof"`
 	DecryptionProof []byte `json:"decryption_proof"` // DLEQ proof
+	EncryptedMemo   []byte `json:"encrypted_memo,omitempty"` // optional encrypted memo
 }
 
 func (msg *MsgUnshield) ValidateBasic() error {
@@ -189,6 +208,9 @@ func (msg *MsgUnshield) ValidateBasic() error {
 	}
 	if len(msg.DecryptionProof) == 0 {
 		return ErrInvalidProof.Wrap("decryption proof cannot be empty")
+	}
+	if len(msg.EncryptedMemo) > MaxEncryptedMemoSize {
+		return ErrInvalidMemo.Wrapf("encrypted_memo exceeds max size %d bytes", MaxEncryptedMemoSize)
 	}
 	return nil
 }

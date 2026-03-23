@@ -162,12 +162,21 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 	}
 
 	// 13. Emit event with the auditor ciphertext for audit trail.
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypeConfidentialSend,
+	eventAttrs := []sdk.Attribute{
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
 		sdk.NewAttribute(types.AttributeKeyReceiver, msg.Receiver),
 		sdk.NewAttribute(types.AttributeKeyDenom, msg.Denom),
 		sdk.NewAttribute(types.AttributeKeyAuditorCiphertext, fmt.Sprintf("%x", msg.AuditorUpdate)),
+	}
+	if len(msg.EncryptedMemo) > 0 {
+		eventAttrs = append(eventAttrs, sdk.NewAttribute(types.AttributeKeyEncryptedMemo, fmt.Sprintf("%x", msg.EncryptedMemo)))
+	}
+	if len(msg.AuditorMemo) > 0 {
+		eventAttrs = append(eventAttrs, sdk.NewAttribute(types.AttributeKeyAuditorMemo, fmt.Sprintf("%x", msg.AuditorMemo)))
+	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeConfidentialSend,
+		eventAttrs...,
 	))
 
 	return &types.MsgConfidentialSendResponse{}, nil

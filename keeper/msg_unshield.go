@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	"cosmossdk.io/math"
 	"github.com/consensys/gnark-crypto/ecc/bn254"
@@ -111,11 +112,17 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 	}
 
 	// 13. Emit event (plaintext amount is public for unshield operations).
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypeUnshield,
+	eventAttrs := []sdk.Attribute{
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
 		sdk.NewAttribute(types.AttributeKeyDenom, msg.Denom),
 		sdk.NewAttribute(types.AttributeKeyAmount, msg.Amount),
+	}
+	if len(msg.EncryptedMemo) > 0 {
+		eventAttrs = append(eventAttrs, sdk.NewAttribute(types.AttributeKeyEncryptedMemo, fmt.Sprintf("%x", msg.EncryptedMemo)))
+	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeUnshield,
+		eventAttrs...,
 	))
 
 	return &types.MsgUnshieldResponse{}, nil

@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -95,11 +96,17 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 	}
 
 	// 13. Emit event (plaintext amount is public for shield operations).
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypeShield,
+	eventAttrs := []sdk.Attribute{
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
 		sdk.NewAttribute(types.AttributeKeyDenom, msg.Denom),
 		sdk.NewAttribute(types.AttributeKeyAmount, msg.Amount),
+	}
+	if len(msg.EncryptedMemo) > 0 {
+		eventAttrs = append(eventAttrs, sdk.NewAttribute(types.AttributeKeyEncryptedMemo, fmt.Sprintf("%x", msg.EncryptedMemo)))
+	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeShield,
+		eventAttrs...,
 	))
 
 	return &types.MsgShieldResponse{}, nil

@@ -20,4 +20,5 @@ var (
 	ErrUnauthorized           = errors.Register(ModuleName, 1015, "unauthorized")
 	ErrInvalidParams          = errors.Register(ModuleName, 1016, "invalid module parameters")
 	ErrPendingNotZero         = errors.Register(ModuleName, 1017, "pending balance is not zero; call ApplyPending first")
+	ErrInvalidMemo            = errors.Register(ModuleName, 1018, "invalid memo")
 )
