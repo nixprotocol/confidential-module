@@ -2,9 +2,11 @@ package keeper
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	bulletproofs "github.com/nixprotocol/bulletproofs-bn254"
@@ -101,6 +103,41 @@ func (k Keeper) verifyEquality2(ctx context.Context, proofBytes []byte, pk1, pk2
 }
 
 // ---------- Helpers ----------
+
+// deterministicZeroEncrypt creates an encryption of zero with deterministic randomness
+// derived from block context. This is CRITICAL for consensus — all validators must
+// produce identical ciphertexts for the same transaction. The randomness is derived
+// from HKDF(tx_bytes || sender || denom || purpose) which is identical across all
+// validators processing the same transaction.
+//
+// Privacy note: these ciphertexts always encrypt zero. Validators know this at creation
+// time. The deterministic randomness makes the ciphertext indistinguishable from a
+// non-zero balance to external observers who don't know the HKDF inputs.
+func deterministicZeroEncrypt(ctx sdk.Context, pk *bn254.G1Affine, sender []byte, denom, purpose string) ([]byte, error) {
+	// Derive deterministic randomness from transaction context.
+	h := sha256.New()
+	h.Write(ctx.TxBytes())
+	h.Write(sender)
+	h.Write([]byte(denom))
+	h.Write([]byte(purpose))
+	// Use 48 bytes to avoid modular bias (spec Section 4.5)
+	seed48 := make([]byte, 48)
+	// Stretch the 32-byte hash to 48 bytes using HKDF-like expansion
+	h2 := sha256.New()
+	h2.Write(h.Sum(nil))
+	h2.Write([]byte{0x01})
+	copy(seed48[0:32], h.Sum(nil))
+	copy(seed48[32:48], h2.Sum(nil)[0:16])
+
+	var r fr.Element
+	r.SetBytes(seed48) // 48 bytes → mod Fr, negligible bias
+
+	ct, _, err := elgamal.EncryptWithRandomness(0, pk, &r)
+	if err != nil {
+		return nil, err
+	}
+	return ct.Marshal()
+}
 
 // unmarshalCiphertext parses 128 bytes into an elgamal.Ciphertext.
 func unmarshalCiphertext(data []byte) (*elgamal.Ciphertext, error) {

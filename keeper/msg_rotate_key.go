@@ -2,12 +2,9 @@ package keeper
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
-	elgamal "github.com/nixprotocol/elgamal-bn254"
 
 	"github.com/nixprotocol/confidential-module/types"
 )
@@ -140,14 +137,10 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 			return nil, err
 		}
 
-		// 10. Reset pending to Encrypt(0, newPk, fresh_r).
-		zeroCt, _, err := elgamal.Encrypt(0, &newPk, rand.Reader)
+		// 10. Reset pending to Encrypt(0) with deterministic randomness (consensus-safe).
+		zeroBytes, err := deterministicZeroEncrypt(ctx, &newPk, addrBytes, denom, "rotate/pending")
 		if err != nil {
 			return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for pending reset: %v", err)
-		}
-		zeroBytes, err := zeroCt.Marshal()
-		if err != nil {
-			return nil, err
 		}
 		if err := k.SetPendingBalance(ctx, addrBytes, denom, zeroBytes); err != nil {
 			return nil, err

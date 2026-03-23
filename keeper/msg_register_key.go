@@ -2,11 +2,7 @@ package keeper
 
 import (
 	"context"
-	"crypto/rand"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
-	elgamal "github.com/nixprotocol/elgamal-bn254"
 
 	"github.com/nixprotocol/confidential-module/types"
 )
@@ -55,26 +51,18 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 	}
 
 	for _, denom := range params.EnabledDenoms {
-		// Encrypt 0 with the user's public key using fresh randomness.
-		zeroCt, _, err := elgamal.Encrypt(0, &pk, rand.Reader)
+		// Encrypt 0 with deterministic randomness (consensus-safe).
+		availBytes, err := deterministicZeroEncrypt(ctx, &pk, addrBytes, denom, "register/available")
 		if err != nil {
 			return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for available balance: %v", err)
-		}
-		availBytes, err := zeroCt.Marshal()
-		if err != nil {
-			return nil, err
 		}
 		if err := k.SetAvailableBalance(ctx, addrBytes, denom, availBytes); err != nil {
 			return nil, err
 		}
 
-		zeroCt2, _, err := elgamal.Encrypt(0, &pk, rand.Reader)
+		pendBytes, err := deterministicZeroEncrypt(ctx, &pk, addrBytes, denom, "register/pending")
 		if err != nil {
 			return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for pending balance: %v", err)
-		}
-		pendBytes, err := zeroCt2.Marshal()
-		if err != nil {
-			return nil, err
 		}
 		if err := k.SetPendingBalance(ctx, addrBytes, denom, pendBytes); err != nil {
 			return nil, err
