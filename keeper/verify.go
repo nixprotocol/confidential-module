@@ -48,11 +48,11 @@ func (k Keeper) verifyDLEQ(ctx context.Context, proofBytes []byte, pk *bn254.G1A
 func (k Keeper) verifyEquality(ctx context.Context, proofBytes []byte, pk1, pk2, pk3 *bn254.G1Affine, ct1, ct2, ct3 *elgamal.Ciphertext, sender, receiver, denom string) error {
 	var proof elgamal.EqualityProof
 	if err := proof.Unmarshal(proofBytes); err != nil {
-		return types.ErrEqualityProofFailed.Wrap("invalid proof format")
+		return types.ErrInvalidProof.Wrap("invalid proof format")
 	}
 	transcript := k.buildTranscript(ctx, sender, receiver, denom)
 	if !elgamal.VerifyEquality(&proof, pk1, pk2, pk3, ct1, ct2, ct3, transcript) {
-		return types.ErrEqualityProofFailed.Wrap("proof verification failed")
+		return types.ErrInvalidProof.Wrap("proof verification failed")
 	}
 	return nil
 }
@@ -63,11 +63,11 @@ func (k Keeper) verifyEquality(ctx context.Context, proofBytes []byte, pk1, pk2,
 func (k Keeper) verifyAggregateRange(ctx context.Context, proofBytes []byte, commitments []bn254.G1Affine, Hbase *bn254.G1Affine, n int, sender, receiver, denom string) error {
 	var proof bulletproofs.AggregateRangeProof
 	if err := proof.Unmarshal(proofBytes); err != nil {
-		return types.ErrRangeProofFailed.Wrap("invalid proof format")
+		return types.ErrInvalidProof.Wrap("invalid proof format")
 	}
 	transcript := k.buildTranscript(ctx, sender, receiver, denom)
 	if !bulletproofs.AggregateRangeVerify(commitments, &proof, Hbase, n, transcript) {
-		return types.ErrRangeProofFailed.Wrap("proof verification failed")
+		return types.ErrInvalidProof.Wrap("proof verification failed")
 	}
 	return nil
 }
@@ -93,11 +93,11 @@ func (k Keeper) verifyApplyPending(ctx context.Context, proofBytes []byte, pk *b
 func (k Keeper) verifyEquality2(ctx context.Context, proofBytes []byte, pk1, pk2 *bn254.G1Affine, ct1, ct2 *elgamal.Ciphertext, sender, denom string) error {
 	var proof elgamal.Equality2Proof
 	if err := proof.Unmarshal(proofBytes); err != nil {
-		return types.ErrEqualityProofFailed.Wrap("invalid proof format")
+		return types.ErrInvalidProof.Wrap("invalid proof format")
 	}
 	transcript := k.buildTranscript(ctx, sender, "", denom)
 	if !elgamal.VerifyEquality2(&proof, pk1, pk2, ct1, ct2, transcript) {
-		return types.ErrEqualityProofFailed.Wrap("proof verification failed")
+		return types.ErrInvalidProof.Wrap("proof verification failed")
 	}
 	return nil
 }

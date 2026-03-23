@@ -24,7 +24,7 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 
 	// 2. Check key registered.
 	if !k.HasRegisteredKey(ctx, addrBytes) {
-		return nil, types.ErrAccountNotRegistered.Wrap("sender has no registered key")
+		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
 	}
 
 	// 3. Check denom enabled.
@@ -53,7 +53,7 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 		return nil, err
 	}
 	if isZero {
-		return nil, types.ErrPendingBalanceEmpty.Wrap("pending balance is zero; nothing to apply")
+		return nil, types.ErrNothingPending.Wrap("pending balance is zero; nothing to apply")
 	}
 
 	pendBytes, err := k.GetPendingBalance(ctx, addrBytes, msg.Denom)
@@ -61,7 +61,7 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 		return nil, err
 	}
 	if pendBytes == nil {
-		return nil, types.ErrPendingBalanceEmpty.Wrap("no pending balance for this denom")
+		return nil, types.ErrNothingPending.Wrap("no pending balance for this denom")
 	}
 	pendCt, err := unmarshalCiphertext(pendBytes)
 	if err != nil {

@@ -25,7 +25,7 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 
 	// 2. Check key registered.
 	if !k.HasRegisteredKey(ctx, addrBytes) {
-		return nil, types.ErrAccountNotRegistered.Wrap("sender has no registered key")
+		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
 	}
 
 	// 3. Get current counter and check new_counter == current + 1.
@@ -34,7 +34,7 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 		return nil, err
 	}
 	if msg.NewCounter != currentCounter+1 {
-		return nil, types.ErrKeyCounterMismatch.Wrapf("expected %d, got %d", currentCounter+1, msg.NewCounter)
+		return nil, types.ErrInvalidCounter.Wrapf("expected %d, got %d", currentCounter+1, msg.NewCounter)
 	}
 
 	// 4. Validate the new public key.

@@ -1,6 +1,10 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+
+	elgamal "github.com/nixprotocol/elgamal-bn254"
+)
 
 // BalanceEntry stores a ciphertext balance for a specific denomination.
 type BalanceEntry struct {
@@ -64,12 +68,22 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("account %d (%s): pubkey must be 64 bytes, got %d", i, acct.Address, len(acct.Pubkey))
 		}
 
+		// Validate pubkey is a valid BN254 G1 point (on-curve, not identity).
+		if _, err := elgamal.UnmarshalPublicKey(acct.Pubkey); err != nil {
+			return fmt.Errorf("account %s: invalid pubkey: %w", acct.Address, err)
+		}
+
 		for j, bal := range acct.AvailableBalances {
 			if bal.Denom == "" {
 				return fmt.Errorf("account %d (%s): available balance %d: denom cannot be empty", i, acct.Address, j)
 			}
 			if len(bal.Ciphertext) != 128 {
 				return fmt.Errorf("account %d (%s): available balance %d: ciphertext must be 128 bytes, got %d", i, acct.Address, j, len(bal.Ciphertext))
+			}
+			// Validate ciphertext points are on curve.
+			var ct elgamal.Ciphertext
+			if err := ct.Unmarshal(bal.Ciphertext); err != nil {
+				return fmt.Errorf("account %s denom %s: invalid available ciphertext: %w", acct.Address, bal.Denom, err)
 			}
 		}
 
@@ -79,6 +93,11 @@ func (gs GenesisState) Validate() error {
 			}
 			if len(bal.Ciphertext) != 128 {
 				return fmt.Errorf("account %d (%s): pending balance %d: ciphertext must be 128 bytes, got %d", i, acct.Address, j, len(bal.Ciphertext))
+			}
+			// Validate ciphertext points are on curve.
+			var ct elgamal.Ciphertext
+			if err := ct.Unmarshal(bal.Ciphertext); err != nil {
+				return fmt.Errorf("account %s denom %s: invalid pending ciphertext: %w", acct.Address, bal.Denom, err)
 			}
 		}
 	}

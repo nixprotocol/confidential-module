@@ -110,7 +110,7 @@ func (msg *MsgConfidentialSend) ValidateBasic() error {
 		return err
 	}
 	if _, err := sdk.AccAddressFromBech32(msg.Receiver); err != nil {
-		return ErrAccountNotRegistered.Wrap("invalid receiver address")
+		return ErrKeyNotRegistered.Wrap("invalid receiver address")
 	}
 	if msg.Sender == msg.Receiver {
 		return ErrInvalidAmount.Wrap("sender and receiver must be different")
@@ -128,10 +128,10 @@ func (msg *MsgConfidentialSend) ValidateBasic() error {
 		return ErrInvalidCiphertext.Wrapf("auditor_update must be 128 bytes, got %d", len(msg.AuditorUpdate))
 	}
 	if len(msg.RangeProof) == 0 {
-		return ErrRangeProofFailed.Wrap("range proof cannot be empty")
+		return ErrInvalidProof.Wrap("range proof cannot be empty")
 	}
 	if len(msg.EqualityProof) == 0 {
-		return ErrEqualityProofFailed.Wrap("equality proof cannot be empty")
+		return ErrInvalidProof.Wrap("equality proof cannot be empty")
 	}
 	if len(msg.EncryptedMemo) > MaxEncryptedMemoSize {
 		return ErrInvalidMemo.Wrapf("encrypted_memo exceeds max size %d bytes", MaxEncryptedMemoSize)
@@ -204,7 +204,7 @@ func (msg *MsgUnshield) ValidateBasic() error {
 		return ErrInvalidCiphertext.Wrapf("ciphertext must be 128 bytes, got %d", len(msg.Ciphertext))
 	}
 	if len(msg.RangeProof) == 0 {
-		return ErrRangeProofFailed.Wrap("range proof cannot be empty")
+		return ErrInvalidProof.Wrap("range proof cannot be empty")
 	}
 	if len(msg.DecryptionProof) == 0 {
 		return ErrInvalidProof.Wrap("decryption proof cannot be empty")
@@ -237,7 +237,7 @@ func (msg *MsgSetAuditorKey) ValidateBasic() error {
 		return err
 	}
 	if len(msg.Pubkey) != 64 {
-		return ErrInvalidAuditorKey.Wrapf("auditor pubkey must be 64 bytes, got %d", len(msg.Pubkey))
+		return ErrAuditorKeyNotSet.Wrapf("auditor pubkey must be 64 bytes, got %d", len(msg.Pubkey))
 	}
 	return nil
 }

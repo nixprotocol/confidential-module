@@ -28,12 +28,12 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 
 	// 3. Check not already registered.
 	if k.HasRegisteredKey(ctx, addrBytes) {
-		return nil, types.ErrAccountAlreadyRegistered.Wrap("key already registered for this account")
+		return nil, types.ErrKeyAlreadyRegistered.Wrap("key already registered for this account")
 	}
 
 	// 4. Counter must be 0 for initial registration.
 	if msg.Counter != 0 {
-		return nil, types.ErrKeyCounterMismatch.Wrap("initial counter must be 0")
+		return nil, types.ErrInvalidCounter.Wrap("initial counter must be 0")
 	}
 
 	// 5. Store pubkey and counter.

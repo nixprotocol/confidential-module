@@ -29,7 +29,7 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 
 	// 2. Check key registered.
 	if !k.HasRegisteredKey(ctx, addrBytes) {
-		return nil, types.ErrAccountNotRegistered.Wrap("sender has no registered key")
+		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
 	}
 
 	// 3. Load and validate params.
@@ -68,7 +68,12 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
 	}
 
-	// 8. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
+	// 8. Defensive guard: ensure amount fits in uint64.
+	if !amt.IsUint64() {
+		return nil, types.ErrInvalidAmount.Wrap("amount does not fit in uint64")
+	}
+
+	// 9. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
 	if err := k.verifyDLEQ(ctx, msg.DecryptionProof, &pk, ct, amt.Uint64(), msg.Sender, msg.Denom); err != nil {
 		return nil, err
 	}

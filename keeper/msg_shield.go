@@ -25,7 +25,7 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 
 	// 2. Check key registered.
 	if !k.HasRegisteredKey(ctx, addrBytes) {
-		return nil, types.ErrAccountNotRegistered.Wrap("sender has no registered key")
+		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
 	}
 
 	// 3. Load and validate params.
@@ -36,7 +36,7 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 
 	// 4. Check auditor key is set.
 	if len(params.AuditorPubKey) == 0 {
-		return nil, types.ErrInvalidAuditorKey.Wrap("auditor key not set")
+		return nil, types.ErrAuditorKeyNotSet.Wrap("auditor key not set")
 	}
 
 	// 5. Check denom enabled.
@@ -71,7 +71,12 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
 	}
 
-	// 10. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
+	// 10. Defensive guard: ensure amount fits in uint64.
+	if !amt.IsUint64() {
+		return nil, types.ErrInvalidAmount.Wrap("amount does not fit in uint64")
+	}
+
+	// 11. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
 	if err := k.verifyDLEQ(ctx, msg.Proof, &pk, ct, amt.Uint64(), msg.Sender, msg.Denom); err != nil {
 		return nil, err
 	}

@@ -27,16 +27,16 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 
 	receiverAddr, err := sdk.AccAddressFromBech32(msg.Receiver)
 	if err != nil {
-		return nil, types.ErrAccountNotRegistered.Wrap("invalid receiver address")
+		return nil, types.ErrKeyNotRegistered.Wrap("invalid receiver address")
 	}
 	receiverBytes := receiverAddr.Bytes()
 
 	// 2. Check both keys registered.
 	if !k.HasRegisteredKey(ctx, senderBytes) {
-		return nil, types.ErrAccountNotRegistered.Wrap("sender has no registered key")
+		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
 	}
 	if !k.HasRegisteredKey(ctx, receiverBytes) {
-		return nil, types.ErrAccountNotRegistered.Wrap("receiver has no registered key")
+		return nil, types.ErrKeyNotRegistered.Wrap("receiver has no registered key")
 	}
 
 	// 3. Load and validate params.
@@ -45,7 +45,7 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, err
 	}
 	if len(params.AuditorPubKey) == 0 {
-		return nil, types.ErrInvalidAuditorKey.Wrap("auditor key not set")
+		return nil, types.ErrAuditorKeyNotSet.Wrap("auditor key not set")
 	}
 	if !isDenomEnabled(params, msg.Denom) {
 		return nil, types.ErrDenomNotEnabled.Wrapf("denom %s is not enabled", msg.Denom)
@@ -57,7 +57,7 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, err
 	}
 	if msg.ReceiverKeyCounter != receiverCounter {
-		return nil, types.ErrKeyCounterMismatch.Wrap("receiver key has been rotated since transaction was created")
+		return nil, types.ErrReceiverKeyRotated.Wrap("receiver key has been rotated since transaction was created")
 	}
 
 	// 5. Get public keys for sender, receiver, and auditor.
@@ -81,7 +81,7 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 
 	auditorPk, err := unmarshalPublicKey(params.AuditorPubKey)
 	if err != nil {
-		return nil, types.ErrInvalidAuditorKey.Wrap(err.Error())
+		return nil, types.ErrAuditorKeyNotSet.Wrap(err.Error())
 	}
 
 	// 6. Unmarshal all three ciphertexts.
