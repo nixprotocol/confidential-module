@@ -47,6 +47,15 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 	}
 
 	// 5. Get current pending balance.
+	// 5a. Check PendingIsZero flag — reject if nothing to apply.
+	isZero, err := k.GetPendingIsZero(ctx, addrBytes, msg.Denom)
+	if err != nil {
+		return nil, err
+	}
+	if isZero {
+		return nil, types.ErrPendingBalanceEmpty.Wrap("pending balance is zero; nothing to apply")
+	}
+
 	pendBytes, err := k.GetPendingBalance(ctx, addrBytes, msg.Denom)
 	if err != nil {
 		return nil, err
