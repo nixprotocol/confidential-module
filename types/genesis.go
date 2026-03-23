@@ -8,14 +8,21 @@ type BalanceEntry struct {
 	Ciphertext []byte `json:"ciphertext"` // 128 bytes
 }
 
+// PendingIsZeroEntry tracks whether a denom's pending balance is zero.
+type PendingIsZeroEntry struct {
+	Denom  string `json:"denom"`
+	IsZero bool   `json:"is_zero"`
+}
+
 // AccountState stores the full confidential state for a single account.
 type AccountState struct {
-	Address           string         `json:"address"`
-	Pubkey            []byte         `json:"pubkey"`             // 64 bytes
-	KeyCounter        uint32         `json:"key_counter"`
-	AvailableBalances []BalanceEntry `json:"available_balances"`
-	PendingBalances   []BalanceEntry `json:"pending_balances"`
-	RotationHeight    uint64         `json:"rotation_height"`
+	Address           string               `json:"address"`
+	Pubkey            []byte               `json:"pubkey"`             // 64 bytes
+	KeyCounter        uint32               `json:"key_counter"`
+	AvailableBalances []BalanceEntry       `json:"available_balances"`
+	PendingBalances   []BalanceEntry       `json:"pending_balances"`
+	PendingIsZero     []PendingIsZeroEntry `json:"pending_is_zero"`
+	RotationHeight    uint64               `json:"rotation_height"`
 }
 
 // GenesisState defines the confidential module genesis state.

@@ -55,6 +55,13 @@ func (k Keeper) InitGenesis(ctx context.Context, gs *types.GenesisState) error {
 				return err
 			}
 		}
+
+		// Store PendingIsZero flags.
+		for _, piz := range acct.PendingIsZero {
+			if err := k.SetPendingIsZero(ctx, addrBytes, piz.Denom, piz.IsZero); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -139,6 +146,22 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 			acct.PendingBalances = append(acct.PendingBalances, types.BalanceEntry{
 				Denom:      denom,
 				Ciphertext: pb.value,
+			})
+		}
+
+		// Collect PendingIsZero flags by iterating PendingIsZeroPrefix + addr + "/".
+		pizPrefix := types.PendingIsZeroKey(addrBytes, "")
+		pizItems, err := iteratePrefix(store, pizPrefix)
+		if err != nil {
+			return nil, err
+		}
+		pizPrefixLen := len(pizPrefix)
+		for _, pz := range pizItems {
+			denom := string(pz.key[pizPrefixLen:])
+			isZero := len(pz.value) > 0 && pz.value[0] == 1
+			acct.PendingIsZero = append(acct.PendingIsZero, types.PendingIsZeroEntry{
+				Denom:  denom,
+				IsZero: isZero,
 			})
 		}
 
