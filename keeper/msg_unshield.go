@@ -40,6 +40,9 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 	if !isDenomEnabled(params, msg.Denom) {
 		return nil, types.ErrDenomNotEnabled.Wrapf("denom %s is not enabled", msg.Denom)
 	}
+	if len(params.AuditorPubKey) == 0 {
+		return nil, types.ErrAuditorKeyNotSet.Wrap("auditor key not set")
+	}
 
 	// 4. Parse amount.
 	amt, ok := math.NewIntFromString(msg.Amount)

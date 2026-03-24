@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"golang.org/x/crypto/hkdf"
 
 	bulletproofs "github.com/nixprotocol/bulletproofs-bn254"
 	elgamal "github.com/nixprotocol/elgamal-bn254"
@@ -114,20 +116,24 @@ func (k Keeper) verifyEquality2(ctx context.Context, proofBytes []byte, pk1, pk2
 // time. The deterministic randomness makes the ciphertext indistinguishable from a
 // non-zero balance to external observers who don't know the HKDF inputs.
 func deterministicZeroEncrypt(ctx sdk.Context, pk *bn254.G1Affine, sender []byte, denom, purpose string) ([]byte, error) {
-	// Derive deterministic randomness from transaction context.
+	// Derive deterministic randomness from transaction context using HKDF-SHA256.
+	// IKM = SHA256(tx_bytes || sender || denom || purpose) — deterministic per-tx input.
+	// Salt = "x/confidential/zero-encrypt" — fixed domain separator.
+	// Output = 48 bytes — wider than Fr (~254 bits) to ensure negligible modular bias.
 	h := sha256.New()
 	h.Write(ctx.TxBytes())
 	h.Write(sender)
 	h.Write([]byte(denom))
 	h.Write([]byte(purpose))
-	// Use 48 bytes to avoid modular bias (spec Section 4.5)
+	ikm := h.Sum(nil)
+
+	salt := []byte("x/confidential/zero-encrypt")
+	hkdfReader := hkdf.New(sha256.New, ikm, salt, []byte("elgamal-randomness"))
+
 	seed48 := make([]byte, 48)
-	// Stretch the 32-byte hash to 48 bytes using HKDF-like expansion
-	h2 := sha256.New()
-	h2.Write(h.Sum(nil))
-	h2.Write([]byte{0x01})
-	copy(seed48[0:32], h.Sum(nil))
-	copy(seed48[32:48], h2.Sum(nil)[0:16])
+	if _, err := io.ReadFull(hkdfReader, seed48); err != nil {
+		return nil, fmt.Errorf("hkdf expansion: %w", err)
+	}
 
 	var r fr.Element
 	r.SetBytes(seed48) // 48 bytes → mod Fr, negligible bias
