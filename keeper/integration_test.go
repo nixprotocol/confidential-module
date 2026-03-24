@@ -390,7 +390,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 	aggProof, err := bulletproofs.AggregateRangeProve(
 		[]uint64{sendAmount, newBalAmount},
 		[]*fr.Element{&rSender, &newBalR},
-		&alicePk, 40, rangeTranscript,
+		&alicePk, 64, rangeTranscript,
 	)
 	require.NoError(t, err)
 	aggProofBytes, err := aggProof.Marshal()
@@ -502,7 +502,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 	unshieldRangeProof, err := bulletproofs.AggregateRangeProve(
 		[]uint64{remainAmount},
 		[]*fr.Element{&remainR},
-		&bobPk, 40, unshieldRangeTranscript,
+		&bobPk, 64, unshieldRangeTranscript,
 	)
 	require.NoError(t, err)
 	unshieldRangeProofBytes, err := unshieldRangeProof.Marshal()
