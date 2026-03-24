@@ -48,7 +48,7 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 	}
 
 	// 5. Check amount fits in MaxTransferBits.
-	if amt.BigInt().BitLen() > params.MaxTransferBits {
+	if amt.BigInt().BitLen() > int(params.MaxTransferBits) {
 		return nil, types.ErrInvalidAmount.Wrapf("amount exceeds %d-bit limit", params.MaxTransferBits)
 	}
 
@@ -97,7 +97,7 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 	commitments := []bn254.G1Affine{remainingCt.C2}
 
 	// 10. Verify range proof: remaining balance >= 0.
-	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, &pk, params.MaxTransferBits, msg.Sender, "", msg.Denom); err != nil {
+	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, &pk, int(params.MaxTransferBits), msg.Sender, "", msg.Denom); err != nil {
 		return nil, err
 	}
 

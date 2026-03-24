@@ -1,0 +1,12 @@
+version: v2
+plugins:
+  - local: protoc-gen-gogo
+    out: ..
+    opt:
+      - plugins=grpc
+      - Mgoogle/protobuf/any.proto=github.com/cosmos/cosmos-sdk/codec/types
+      - Mnixprotocol/confidential/v1/types.proto=github.com/nixprotocol/confidential-module/types
+      - Mnixprotocol/confidential/v1/tx.proto=github.com/nixprotocol/confidential-module/types
+      - Mnixprotocol/confidential/v1/query.proto=github.com/nixprotocol/confidential-module/types
+      - Mnixprotocol/confidential/v1/genesis.proto=github.com/nixprotocol/confidential-module/types
+      - Mnixprotocol/confidential/module/v1/module.proto=github.com/nixprotocol/confidential-module/types

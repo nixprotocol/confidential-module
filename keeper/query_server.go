@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"context"
-	"encoding/hex"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -42,8 +41,8 @@ func (q queryServer) Balance(ctx context.Context, req *types.QueryBalanceRequest
 	}
 
 	return &types.QueryBalanceResponse{
-		Available: hex.EncodeToString(availBytes),
-		Pending:   hex.EncodeToString(pendBytes),
+		Available: availBytes,
+		Pending:   pendBytes,
 	}, nil
 }
 
@@ -54,7 +53,7 @@ func (q queryServer) AuditorKey(ctx context.Context, _ *types.QueryAuditorKeyReq
 		return nil, err
 	}
 	return &types.QueryAuditorKeyResponse{
-		AuditorPubKey: hex.EncodeToString(params.AuditorPubKey),
+		AuditorPubKey: params.AuditorPubKey,
 	}, nil
 }
 
@@ -65,7 +64,7 @@ func (q queryServer) Params(ctx context.Context, _ *types.QueryParamsRequest) (*
 		return nil, err
 	}
 	return &types.QueryParamsResponse{
-		Params: params,
+		Params: &params,
 	}, nil
 }
 
@@ -84,7 +83,7 @@ func (q queryServer) AccountInfo(ctx context.Context, req *types.QueryAccountInf
 
 	if pkBytes == nil {
 		return &types.QueryAccountInfoResponse{
-			Pubkey:     "",
+			Pubkey:     nil,
 			KeyCounter: 0,
 			Registered: false,
 		}, nil
@@ -96,7 +95,7 @@ func (q queryServer) AccountInfo(ctx context.Context, req *types.QueryAccountInf
 	}
 
 	return &types.QueryAccountInfoResponse{
-		Pubkey:     hex.EncodeToString(pkBytes),
+		Pubkey:     pkBytes,
 		KeyCounter: counter,
 		Registered: true,
 	}, nil

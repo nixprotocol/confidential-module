@@ -685,10 +685,10 @@ func TestRotateKey_WrongCounter(t *testing.T) {
 		Sender:     alice,
 		NewPubkey:  elgamal.MarshalPublicKey(&newPk),
 		NewCounter: 5,
-		ReEncryptedAvailable: []types.DenomCiphertext{
+		ReEncryptedAvailable: []*types.DenomCiphertext{
 			{Denom: "uatom", Ciphertext: make([]byte, 128)},
 		},
-		EqualityProofs: []types.DenomProof{
+		EqualityProofs: []*types.DenomProof{
 			{Denom: "uatom", Proof: make([]byte, 100)},
 		},
 	})
@@ -730,10 +730,10 @@ func TestRotateKey_PendingNotZero(t *testing.T) {
 		Sender:     bob,
 		NewPubkey:  elgamal.MarshalPublicKey(&newPk),
 		NewCounter: 1,
-		ReEncryptedAvailable: []types.DenomCiphertext{
+		ReEncryptedAvailable: []*types.DenomCiphertext{
 			{Denom: "uatom", Ciphertext: make([]byte, 128)},
 		},
-		EqualityProofs: []types.DenomProof{
+		EqualityProofs: []*types.DenomProof{
 			{Denom: "uatom", Proof: make([]byte, 100)},
 		},
 	})

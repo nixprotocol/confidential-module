@@ -130,7 +130,7 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 	commitments := []bn254.G1Affine{senderCt.C2, newBalanceCt.C2}
 
 	// 9. Verify aggregate range proof.
-	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, &senderPk, params.MaxTransferBits, msg.Sender, msg.Receiver, msg.Denom); err != nil {
+	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, &senderPk, int(params.MaxTransferBits), msg.Sender, msg.Receiver, msg.Denom); err != nil {
 		return nil, err
 	}
 

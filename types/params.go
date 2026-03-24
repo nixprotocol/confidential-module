@@ -2,30 +2,6 @@ package types
 
 import "fmt"
 
-// Params defines the module parameters.
-type Params struct {
-	// AuditorPubKey is the current auditor ElGamal public key (64 bytes, uncompressed G1).
-	AuditorPubKey []byte `json:"auditor_pub_key"`
-	// PrevAuditorPubKey is the previous auditor key kept during grace period.
-	PrevAuditorPubKey []byte `json:"prev_auditor_pub_key,omitempty"`
-	// AuditorRotationHeight is the block height at which the auditor key was last rotated.
-	AuditorRotationHeight uint64 `json:"auditor_rotation_height"`
-	// AuditorKeyGracePeriod is the number of blocks the previous auditor key remains valid.
-	AuditorKeyGracePeriod uint64 `json:"auditor_key_grace_period"`
-	// EnabledDenoms is the list of token denominations that can be shielded.
-	EnabledDenoms []string `json:"enabled_denoms"`
-	// MaxTransferBits is the bit width for range proofs. Must be <= 64.
-	// Range proofs pad to dimension 64 (single) or 128 (aggregate), so 40-bit
-	// and 64-bit proofs produce identical proof sizes with zero performance penalty.
-	// The BSGS decryption table size is a client-side concern; on-chain validation
-	// only checks the range proof.
-	MaxTransferBits int `json:"max_transfer_bits"`
-	// RotationCooldown is the minimum number of blocks between key rotations for an account.
-	RotationCooldown uint64 `json:"rotation_cooldown"`
-	// MaxMemoSize is the maximum plaintext memo size in bytes.
-	MaxMemoSize int `json:"max_memo_size"`
-}
-
 // DefaultParams returns sensible default parameters.
 func DefaultParams() Params {
 	return Params{

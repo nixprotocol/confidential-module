@@ -6,45 +6,20 @@ import (
 	elgamal "github.com/nixprotocol/elgamal-bn254"
 )
 
-// BalanceEntry stores a ciphertext balance for a specific denomination.
-type BalanceEntry struct {
-	Denom      string `json:"denom"`
-	Ciphertext []byte `json:"ciphertext"` // 128 bytes
-}
-
-// PendingIsZeroEntry tracks whether a denom's pending balance is zero.
-type PendingIsZeroEntry struct {
-	Denom  string `json:"denom"`
-	IsZero bool   `json:"is_zero"`
-}
-
-// AccountState stores the full confidential state for a single account.
-type AccountState struct {
-	Address           string               `json:"address"`
-	Pubkey            []byte               `json:"pubkey"`             // 64 bytes
-	KeyCounter        uint32               `json:"key_counter"`
-	AvailableBalances []BalanceEntry       `json:"available_balances"`
-	PendingBalances   []BalanceEntry       `json:"pending_balances"`
-	PendingIsZero     []PendingIsZeroEntry `json:"pending_is_zero"`
-	RotationHeight    uint64               `json:"rotation_height"`
-}
-
-// GenesisState defines the confidential module genesis state.
-type GenesisState struct {
-	Params   Params         `json:"params"`
-	Accounts []AccountState `json:"accounts"`
-}
-
 // DefaultGenesisState returns the default genesis with empty accounts and default params.
 func DefaultGenesisState() *GenesisState {
+	params := DefaultParams()
 	return &GenesisState{
-		Params:   DefaultParams(),
-		Accounts: []AccountState{},
+		Params:   &params,
+		Accounts: []*AccountState{},
 	}
 }
 
 // Validate performs genesis state validation.
 func (gs GenesisState) Validate() error {
+	if gs.Params == nil {
+		return fmt.Errorf("params cannot be nil")
+	}
 	if err := gs.Params.Validate(); err != nil {
 		return fmt.Errorf("invalid params: %w", err)
 	}

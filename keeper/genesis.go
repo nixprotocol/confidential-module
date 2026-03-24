@@ -13,8 +13,14 @@ import (
 // InitGenesis restores all confidential module state from the genesis export.
 func (k Keeper) InitGenesis(ctx context.Context, gs *types.GenesisState) error {
 	// 1. Set params.
-	if err := k.SetParams(ctx, gs.Params); err != nil {
-		return err
+	if gs.Params != nil {
+		if err := k.SetParams(ctx, *gs.Params); err != nil {
+			return err
+		}
+	} else {
+		if err := k.SetParams(ctx, types.DefaultParams()); err != nil {
+			return err
+		}
 	}
 
 	// 2. Restore each account.
@@ -75,7 +81,7 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 
 	gs := &types.GenesisState{
-		Params: params,
+		Params: &params,
 	}
 
 	store := k.storeService.OpenKVStore(ctx)
@@ -100,7 +106,7 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 			return nil, err
 		}
 
-		acct := types.AccountState{
+		acct := &types.AccountState{
 			Address: addrStr,
 			Pubkey:  kv.value,
 		}
@@ -128,7 +134,7 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		availPrefixLen := len(availPrefix)
 		for _, ab := range availItems {
 			denom := string(ab.key[availPrefixLen:])
-			acct.AvailableBalances = append(acct.AvailableBalances, types.BalanceEntry{
+			acct.AvailableBalances = append(acct.AvailableBalances, &types.BalanceEntry{
 				Denom:      denom,
 				Ciphertext: ab.value,
 			})
@@ -143,7 +149,7 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		pendPrefixLen := len(pendPrefix)
 		for _, pb := range pendItems {
 			denom := string(pb.key[pendPrefixLen:])
-			acct.PendingBalances = append(acct.PendingBalances, types.BalanceEntry{
+			acct.PendingBalances = append(acct.PendingBalances, &types.BalanceEntry{
 				Denom:      denom,
 				Ciphertext: pb.value,
 			})
@@ -159,7 +165,7 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		for _, pz := range pizItems {
 			denom := string(pz.key[pizPrefixLen:])
 			isZero := len(pz.value) > 0 && pz.value[0] == 1
-			acct.PendingIsZero = append(acct.PendingIsZero, types.PendingIsZeroEntry{
+			acct.PendingIsZero = append(acct.PendingIsZero, &types.PendingIsZeroEntry{
 				Denom:  denom,
 				IsZero: isZero,
 			})

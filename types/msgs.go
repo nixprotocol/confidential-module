@@ -24,12 +24,6 @@ var (
 
 // ---------- MsgRegisterKey ----------
 
-type MsgRegisterKey struct {
-	Sender  string `json:"sender"`
-	Pubkey  []byte `json:"pubkey"`  // 64 bytes (uncompressed G1)
-	Counter uint32 `json:"counter"` // initial key counter (must be 0 for first registration)
-}
-
 func (msg *MsgRegisterKey) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
 		return err
@@ -46,15 +40,6 @@ func (msg *MsgRegisterKey) GetSigners() []sdk.AccAddress {
 }
 
 // ---------- MsgShield ----------
-
-type MsgShield struct {
-	Sender        string `json:"sender"`
-	Denom         string `json:"denom"`
-	Amount        string `json:"amount"`          // math.Int as string
-	Ciphertext    []byte `json:"ciphertext"`      // 128 bytes
-	Proof         []byte `json:"proof"`            // DLEQ proof
-	EncryptedMemo []byte `json:"encrypted_memo,omitempty"` // optional encrypted memo
-}
 
 func (msg *MsgShield) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
@@ -90,20 +75,6 @@ func (msg *MsgShield) GetSigners() []sdk.AccAddress {
 }
 
 // ---------- MsgConfidentialSend ----------
-
-type MsgConfidentialSend struct {
-	Sender             string `json:"sender"`
-	Receiver           string `json:"receiver"`
-	Denom              string `json:"denom"`
-	SenderUpdate       []byte `json:"sender_update"`       // 128 bytes
-	ReceiverUpdate     []byte `json:"receiver_update"`     // 128 bytes
-	AuditorUpdate      []byte `json:"auditor_update"`      // 128 bytes
-	RangeProof         []byte `json:"range_proof"`
-	EqualityProof      []byte `json:"equality_proof"`
-	ReceiverKeyCounter uint32 `json:"receiver_key_counter"`
-	EncryptedMemo      []byte `json:"encrypted_memo,omitempty"` // optional memo encrypted to recipient
-	AuditorMemo        []byte `json:"auditor_memo,omitempty"`   // optional memo encrypted to auditor
-}
 
 func (msg *MsgConfidentialSend) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
@@ -149,13 +120,6 @@ func (msg *MsgConfidentialSend) GetSigners() []sdk.AccAddress {
 
 // ---------- MsgApplyPending ----------
 
-type MsgApplyPending struct {
-	Sender             string `json:"sender"`
-	Denom              string `json:"denom"`
-	NewAvailableUpdate []byte `json:"new_available_update"` // 128 bytes
-	Proof              []byte `json:"proof"`                // ApplyPendingProof
-}
-
 func (msg *MsgApplyPending) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
 		return err
@@ -178,16 +142,6 @@ func (msg *MsgApplyPending) GetSigners() []sdk.AccAddress {
 }
 
 // ---------- MsgUnshield ----------
-
-type MsgUnshield struct {
-	Sender          string `json:"sender"`
-	Denom           string `json:"denom"`
-	Amount          string `json:"amount"`
-	Ciphertext      []byte `json:"ciphertext"`       // 128 bytes
-	RangeProof      []byte `json:"range_proof"`
-	DecryptionProof []byte `json:"decryption_proof"` // DLEQ proof
-	EncryptedMemo   []byte `json:"encrypted_memo,omitempty"` // optional encrypted memo
-}
 
 func (msg *MsgUnshield) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
@@ -227,11 +181,6 @@ func (msg *MsgUnshield) GetSigners() []sdk.AccAddress {
 
 // ---------- MsgSetAuditorKey ----------
 
-type MsgSetAuditorKey struct {
-	Authority string `json:"authority"`
-	Pubkey    []byte `json:"pubkey"` // 64 bytes
-}
-
 func (msg *MsgSetAuditorKey) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Authority); err != nil {
 		return err
@@ -248,26 +197,6 @@ func (msg *MsgSetAuditorKey) GetSigners() []sdk.AccAddress {
 }
 
 // ---------- MsgRotateKey ----------
-
-// DenomCiphertext associates a denomination with a re-encrypted ciphertext.
-type DenomCiphertext struct {
-	Denom      string `json:"denom"`
-	Ciphertext []byte `json:"ciphertext"` // 128 bytes
-}
-
-// DenomProof associates a denomination with an equality proof.
-type DenomProof struct {
-	Denom string `json:"denom"`
-	Proof []byte `json:"proof"`
-}
-
-type MsgRotateKey struct {
-	Sender               string            `json:"sender"`
-	NewPubkey            []byte            `json:"new_pubkey"`             // 64 bytes
-	NewCounter           uint32            `json:"new_counter"`
-	ReEncryptedAvailable []DenomCiphertext `json:"re_encrypted_available"`
-	EqualityProofs       []DenomProof      `json:"equality_proofs"`
-}
 
 func (msg *MsgRotateKey) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {

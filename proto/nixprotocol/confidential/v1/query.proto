@@ -1,0 +1,50 @@
+syntax = "proto3";
+package nixprotocol.confidential.v1;
+
+option go_package = "github.com/nixprotocol/confidential-module/types";
+
+import "google/api/annotations.proto";
+import "nixprotocol/confidential/v1/types.proto";
+
+service Query {
+  rpc Balance(QueryBalanceRequest) returns (QueryBalanceResponse) {
+    option (google.api.http).get = "/nixprotocol/confidential/v1/balance/{address}/{denom}";
+  }
+  rpc AuditorKey(QueryAuditorKeyRequest) returns (QueryAuditorKeyResponse) {
+    option (google.api.http).get = "/nixprotocol/confidential/v1/auditor_key";
+  }
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/nixprotocol/confidential/v1/params";
+  }
+  rpc AccountInfo(QueryAccountInfoRequest) returns (QueryAccountInfoResponse) {
+    option (google.api.http).get = "/nixprotocol/confidential/v1/account/{address}";
+  }
+}
+
+message QueryBalanceRequest {
+  string address = 1;
+  string denom = 2;
+}
+message QueryBalanceResponse {
+  bytes available = 1;
+  bytes pending = 2;
+}
+
+message QueryAuditorKeyRequest {}
+message QueryAuditorKeyResponse {
+  bytes auditor_pub_key = 1;
+}
+
+message QueryParamsRequest {}
+message QueryParamsResponse {
+  Params params = 1;
+}
+
+message QueryAccountInfoRequest {
+  string address = 1;
+}
+message QueryAccountInfoResponse {
+  bytes pubkey = 1;
+  uint32 key_counter = 2;
+  bool registered = 3;
+}

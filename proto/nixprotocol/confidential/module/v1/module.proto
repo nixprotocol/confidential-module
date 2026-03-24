@@ -1,0 +1,13 @@
+syntax = "proto3";
+package nixprotocol.confidential.module.v1;
+
+option go_package = "github.com/nixprotocol/confidential-module/types";
+
+import "cosmos/app/v1alpha1/module.proto";
+
+message Module {
+  option (cosmos.app.v1alpha1.module) = {
+    go_import: "github.com/nixprotocol/confidential-module"
+  };
+  string authority = 1;
+}

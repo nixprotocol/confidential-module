@@ -71,10 +71,9 @@ func (AppModule) GetQueryCmd() *cobra.Command {
 	return cli.GetQueryCmd()
 }
 
-func (am AppModule) RegisterServices(_ grpc.ServiceRegistrar) error {
-	// Since we don't have protobuf service definitions,
-	// msg and query servers are wired via CLI and direct keeper calls.
-	// Full gRPC registration requires proto-generated service descriptors.
+func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
+	types.RegisterMsgServer(registrar, keeper.NewMsgServerImpl(am.keeper))
+	types.RegisterQueryServer(registrar, keeper.NewQueryServerImpl(am.keeper))
 	return nil
 }
 

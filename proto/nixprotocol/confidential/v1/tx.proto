@@ -1,0 +1,92 @@
+syntax = "proto3";
+package nixprotocol.confidential.v1;
+
+option go_package = "github.com/nixprotocol/confidential-module/types";
+
+import "cosmos/msg/v1/msg.proto";
+import "nixprotocol/confidential/v1/types.proto";
+
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  rpc RegisterKey(MsgRegisterKey) returns (MsgRegisterKeyResponse);
+  rpc Shield(MsgShield) returns (MsgShieldResponse);
+  rpc ConfidentialSend(MsgConfidentialSend) returns (MsgConfidentialSendResponse);
+  rpc ApplyPending(MsgApplyPending) returns (MsgApplyPendingResponse);
+  rpc Unshield(MsgUnshield) returns (MsgUnshieldResponse);
+  rpc SetAuditorKey(MsgSetAuditorKey) returns (MsgSetAuditorKeyResponse);
+  rpc RotateKey(MsgRotateKey) returns (MsgRotateKeyResponse);
+}
+
+message MsgRegisterKey {
+  option (cosmos.msg.v1.signer) = "sender";
+  string sender = 1;
+  bytes pubkey = 2;
+  uint32 counter = 3;
+}
+message MsgRegisterKeyResponse {}
+
+message MsgShield {
+  option (cosmos.msg.v1.signer) = "sender";
+  string sender = 1;
+  string denom = 2;
+  string amount = 3;
+  bytes ciphertext = 4;
+  bytes proof = 5;
+  bytes encrypted_memo = 6;
+}
+message MsgShieldResponse {}
+
+message MsgConfidentialSend {
+  option (cosmos.msg.v1.signer) = "sender";
+  string sender = 1;
+  string receiver = 2;
+  string denom = 3;
+  bytes sender_update = 4;
+  bytes receiver_update = 5;
+  bytes auditor_update = 6;
+  bytes range_proof = 7;
+  bytes equality_proof = 8;
+  uint32 receiver_key_counter = 9;
+  bytes encrypted_memo = 10;
+  bytes auditor_memo = 11;
+}
+message MsgConfidentialSendResponse {}
+
+message MsgApplyPending {
+  option (cosmos.msg.v1.signer) = "sender";
+  string sender = 1;
+  string denom = 2;
+  bytes new_available_update = 3;
+  bytes proof = 4;
+}
+message MsgApplyPendingResponse {}
+
+message MsgUnshield {
+  option (cosmos.msg.v1.signer) = "sender";
+  string sender = 1;
+  string denom = 2;
+  string amount = 3;
+  bytes ciphertext = 4;
+  bytes range_proof = 5;
+  bytes decryption_proof = 6;
+  bytes encrypted_memo = 7;
+}
+message MsgUnshieldResponse {}
+
+message MsgSetAuditorKey {
+  option (cosmos.msg.v1.signer) = "authority";
+  string authority = 1;
+  bytes pubkey = 2;
+}
+message MsgSetAuditorKeyResponse {}
+
+message MsgRotateKey {
+  option (cosmos.msg.v1.signer) = "sender";
+  string sender = 1;
+  bytes new_pubkey = 2;
+  uint32 new_counter = 3;
+  repeated DenomCiphertext re_encrypted_available = 4;
+  repeated DenomProof equality_proofs = 5;
+}
+message MsgRotateKeyResponse {}

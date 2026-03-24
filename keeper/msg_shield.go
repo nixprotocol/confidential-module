@@ -51,7 +51,7 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 	}
 
 	// 7. Check amount fits in MaxTransferBits.
-	if amt.BigInt().BitLen() > params.MaxTransferBits {
+	if amt.BigInt().BitLen() > int(params.MaxTransferBits) {
 		return nil, types.ErrInvalidAmount.Wrapf("amount exceeds %d-bit limit", params.MaxTransferBits)
 	}
 
