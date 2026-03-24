@@ -248,7 +248,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 	params := types.Params{
 		AuditorPubKey:         elgamal.MarshalPublicKey(&auditorPk),
 		EnabledDenoms:         []string{"uatom"},
-		MaxTransferBits:       40,
+		MaxTransferBits:       64,
 		AuditorKeyGracePeriod: 100,
 		RotationCooldown:      100,
 	}

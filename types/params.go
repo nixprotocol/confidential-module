@@ -14,7 +14,11 @@ type Params struct {
 	AuditorKeyGracePeriod uint64 `json:"auditor_key_grace_period"`
 	// EnabledDenoms is the list of token denominations that can be shielded.
 	EnabledDenoms []string `json:"enabled_denoms"`
-	// MaxTransferBits is the bit width for range proofs. Must be <= 40 to match BSGS decryption limit.
+	// MaxTransferBits is the bit width for range proofs. Must be <= 64.
+	// Range proofs pad to dimension 64 (single) or 128 (aggregate), so 40-bit
+	// and 64-bit proofs produce identical proof sizes with zero performance penalty.
+	// The BSGS decryption table size is a client-side concern; on-chain validation
+	// only checks the range proof.
 	MaxTransferBits int `json:"max_transfer_bits"`
 	// RotationCooldown is the minimum number of blocks between key rotations for an account.
 	RotationCooldown uint64 `json:"rotation_cooldown"`
@@ -30,7 +34,7 @@ func DefaultParams() Params {
 		AuditorRotationHeight: 0,
 		AuditorKeyGracePeriod: 100,
 		EnabledDenoms:         []string{},
-		MaxTransferBits:       40,
+		MaxTransferBits:       64,
 		RotationCooldown:      100,
 		MaxMemoSize:           1024,
 	}
@@ -44,8 +48,8 @@ func (p Params) Validate() error {
 	if len(p.PrevAuditorPubKey) != 0 && len(p.PrevAuditorPubKey) != 64 {
 		return fmt.Errorf("previous auditor public key must be 64 bytes, got %d", len(p.PrevAuditorPubKey))
 	}
-	if p.MaxTransferBits <= 0 || p.MaxTransferBits > 40 {
-		return fmt.Errorf("max_transfer_bits must be in (0, 40], got %d (limited by BSGS decryption table)", p.MaxTransferBits)
+	if p.MaxTransferBits <= 0 || p.MaxTransferBits > 64 {
+		return fmt.Errorf("max_transfer_bits must be in (0, 64], got %d", p.MaxTransferBits)
 	}
 	for _, denom := range p.EnabledDenoms {
 		if denom == "" {
