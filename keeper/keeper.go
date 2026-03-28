@@ -23,6 +23,8 @@ type Keeper struct {
 }
 
 // NewKeeper creates a new confidential module keeper.
+// Panics if the authority address cannot be encoded — this indicates a fatal
+// app misconfiguration that must be fixed before the chain can start.
 func NewKeeper(
 	storeService store.KVStoreService,
 	cdc codec.Codec,

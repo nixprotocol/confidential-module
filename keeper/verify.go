@@ -2,19 +2,34 @@ package keeper
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
-	"io"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
-	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"golang.org/x/crypto/hkdf"
 
 	bulletproofs "github.com/nixprotocol/bulletproofs-bn254"
 	elgamal "github.com/nixprotocol/elgamal-bn254"
 
 	"github.com/nixprotocol/confidential-module/types"
+)
+
+// Gas costs for proof verification, calibrated from benchmarks on Apple M1 Pro.
+// These should be tuned per-chain based on validator hardware. The ratio between
+// operations should remain approximately the same across platforms.
+//
+// Reference latencies (M1 Pro, arm64):
+//   DLEQ verify:           ~200μs
+//   ApplyPending verify:   ~505μs
+//   Equality verify:       ~770μs
+//   Range verify (64-bit): ~5.2ms
+//   Aggregate range (2×64):~9.1ms
+const (
+	GasDLEQVerify          = 50_000
+	GasEqualityVerify      = 100_000
+	GasAggregateRangeBase  = 150_000 // base cost for aggregate range proof
+	GasAggregateRangePerBit = 2_000  // additional cost per bit of range
+	GasApplyPendingVerify  = 70_000
+	GasEquality2Verify     = 70_000
 )
 
 // buildTranscript creates a Fiat-Shamir transcript with chain context per spec Section 4.2.2.
@@ -33,6 +48,9 @@ func (k Keeper) buildTranscript(ctx context.Context, sender, receiver, denom str
 // verifyDLEQ deserializes and verifies a DLEQ proof with context transcript.
 // Used for MsgShield and MsgUnshield (decryption proof).
 func (k Keeper) verifyDLEQ(ctx context.Context, proofBytes []byte, pk *bn254.G1Affine, ct *elgamal.Ciphertext, amount uint64, sender, denom string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.GasMeter().ConsumeGas(GasDLEQVerify, "dleq proof verification")
+
 	var proof elgamal.DLEQProof
 	if err := proof.Unmarshal(proofBytes); err != nil {
 		return types.ErrInvalidProof.Wrap("invalid proof format")
@@ -48,6 +66,9 @@ func (k Keeper) verifyDLEQ(ctx context.Context, proofBytes []byte, pk *bn254.G1A
 // Used for MsgConfidentialSend to prove sender, receiver, and auditor
 // ciphertexts all encrypt the same amount.
 func (k Keeper) verifyEquality(ctx context.Context, proofBytes []byte, pk1, pk2, pk3 *bn254.G1Affine, ct1, ct2, ct3 *elgamal.Ciphertext, sender, receiver, denom string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.GasMeter().ConsumeGas(GasEqualityVerify, "equality proof verification")
+
 	var proof elgamal.EqualityProof
 	if err := proof.Unmarshal(proofBytes); err != nil {
 		return types.ErrInvalidProof.Wrap("invalid proof format")
@@ -63,6 +84,12 @@ func (k Keeper) verifyEquality(ctx context.Context, proofBytes []byte, pk1, pk2,
 // Used for MsgConfidentialSend (sender remaining + transfer amount)
 // and MsgUnshield (remaining balance).
 func (k Keeper) verifyAggregateRange(ctx context.Context, proofBytes []byte, commitments []bn254.G1Affine, Hbase *bn254.G1Affine, n int, sender, receiver, denom string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	// Gas scales with proof complexity: base + (bits × commitments × per_bit).
+	// MsgConfidentialSend has 2 commitments (transfer + remainder), MsgUnshield has 1.
+	gasCost := GasAggregateRangeBase + uint64(n)*uint64(len(commitments))*GasAggregateRangePerBit
+	sdkCtx.GasMeter().ConsumeGas(gasCost, "aggregate range proof verification")
+
 	var proof bulletproofs.AggregateRangeProof
 	if err := proof.Unmarshal(proofBytes); err != nil {
 		return types.ErrInvalidProof.Wrap("invalid proof format")
@@ -78,6 +105,9 @@ func (k Keeper) verifyAggregateRange(ctx context.Context, proofBytes []byte, com
 // Proves the user decrypted the pending balance and re-encrypted to a new
 // available balance ciphertext.
 func (k Keeper) verifyApplyPending(ctx context.Context, proofBytes []byte, pk *bn254.G1Affine, pending, newCt *elgamal.Ciphertext, sender, denom string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.GasMeter().ConsumeGas(GasApplyPendingVerify, "apply-pending proof verification")
+
 	var proof elgamal.ApplyPendingProof
 	if err := proof.Unmarshal(proofBytes); err != nil {
 		return types.ErrInvalidProof.Wrap("invalid proof format")
@@ -93,6 +123,9 @@ func (k Keeper) verifyApplyPending(ctx context.Context, proofBytes []byte, pk *b
 // Used for MsgRotateKey to prove that old-key and new-key ciphertexts
 // encrypt the same balance.
 func (k Keeper) verifyEquality2(ctx context.Context, proofBytes []byte, pk1, pk2 *bn254.G1Affine, ct1, ct2 *elgamal.Ciphertext, sender, denom string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.GasMeter().ConsumeGas(GasEquality2Verify, "equality2 proof verification")
+
 	var proof elgamal.Equality2Proof
 	if err := proof.Unmarshal(proofBytes); err != nil {
 		return types.ErrInvalidProof.Wrap("invalid proof format")
@@ -106,42 +139,18 @@ func (k Keeper) verifyEquality2(ctx context.Context, proofBytes []byte, pk1, pk2
 
 // ---------- Helpers ----------
 
-// deterministicZeroEncrypt creates an encryption of zero with deterministic randomness
-// derived from block context. This is CRITICAL for consensus — all validators must
-// produce identical ciphertexts for the same transaction. The randomness is derived
-// from HKDF(tx_bytes || sender || denom || purpose) which is identical across all
-// validators processing the same transaction.
+// zeroEncrypt creates an encryption of zero with ZERO randomness.
+// This produces the identity ciphertext (O, O) which is deterministic across all
+// validators and allows the client to correctly track cumulative randomness from
+// the first real operation (shield) onwards.
 //
-// Privacy note: these ciphertexts always encrypt zero. Validators know this at creation
-// time. The deterministic randomness makes the ciphertext indistinguishable from a
-// non-zero balance to external observers who don't know the HKDF inputs.
-func deterministicZeroEncrypt(ctx sdk.Context, pk *bn254.G1Affine, sender []byte, denom, purpose string) ([]byte, error) {
-	// Derive deterministic randomness from transaction context using HKDF-SHA256.
-	// IKM = SHA256(tx_bytes || sender || denom || purpose) — deterministic per-tx input.
-	// Salt = "x/confidential/zero-encrypt" — fixed domain separator.
-	// Output = 48 bytes — wider than Fr (~254 bits) to ensure negligible modular bias.
-	h := sha256.New()
-	h.Write(ctx.TxBytes())
-	h.Write(sender)
-	h.Write([]byte(denom))
-	h.Write([]byte(purpose))
-	ikm := h.Sum(nil)
-
-	salt := []byte("x/confidential/zero-encrypt")
-	hkdfReader := hkdf.New(sha256.New, ikm, salt, []byte("elgamal-randomness"))
-
-	seed48 := make([]byte, 48)
-	if _, err := io.ReadFull(hkdfReader, seed48); err != nil {
-		return nil, fmt.Errorf("hkdf expansion: %w", err)
-	}
-
-	var r fr.Element
-	r.SetBytes(seed48) // 48 bytes → mod Fr, negligible bias
-
-	ct, _, err := elgamal.EncryptWithRandomness(0, pk, &r)
-	if err != nil {
-		return nil, err
-	}
+// Privacy note: a zero-randomness zero-encryption IS distinguishable as "empty".
+// This is acceptable because all new accounts start with zero balance (public knowledge).
+// Once the user shields tokens, the balance becomes indistinguishable.
+func zeroEncrypt() ([]byte, error) {
+	// Zero value + zero randomness = identity ciphertext (O, O)
+	// C1 = 0*G = O, C2 = 0*G + 0*pk = O (regardless of pk)
+	var ct elgamal.Ciphertext // both C1 and C2 are zero (identity point)
 	return ct.Marshal()
 }
 
@@ -155,6 +164,24 @@ func unmarshalCiphertext(data []byte) (*elgamal.Ciphertext, error) {
 		return nil, err
 	}
 	return &ct, nil
+}
+
+// getRegisteredPubkey fetches and unmarshals an account's ElGamal public key
+// in a single store read. Returns ErrKeyNotRegistered if no key exists, or
+// propagates store/unmarshal errors directly.
+func (k Keeper) getRegisteredPubkey(ctx context.Context, addr []byte) (bn254.G1Affine, error) {
+	pkBytes, err := k.GetAccountPubkey(ctx, addr)
+	if err != nil {
+		return bn254.G1Affine{}, err
+	}
+	if pkBytes == nil {
+		return bn254.G1Affine{}, types.ErrKeyNotRegistered
+	}
+	pk, err := unmarshalPublicKey(pkBytes)
+	if err != nil {
+		return bn254.G1Affine{}, types.ErrInvalidPubkey.Wrap(err.Error())
+	}
+	return pk, nil
 }
 
 // unmarshalPublicKey parses 64 bytes into a bn254.G1Affine.

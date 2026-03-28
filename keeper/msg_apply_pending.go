@@ -22,9 +22,10 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 	}
 	addrBytes := senderAddr.Bytes()
 
-	// 2. Check key registered.
-	if !k.HasRegisteredKey(ctx, addrBytes) {
-		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
+	// 2. Get sender's registered pubkey (single store read + unmarshal).
+	pk, err := k.getRegisteredPubkey(ctx, addrBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	// 3. Check denom enabled.
@@ -36,18 +37,8 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 		return nil, types.ErrDenomNotEnabled.Wrapf("denom %s is not enabled", msg.Denom)
 	}
 
-	// 4. Get sender's pubkey.
-	pkBytes, err := k.GetAccountPubkey(ctx, addrBytes)
-	if err != nil {
-		return nil, err
-	}
-	pk, err := unmarshalPublicKey(pkBytes)
-	if err != nil {
-		return nil, types.ErrInvalidPubkey.Wrap(err.Error())
-	}
-
-	// 5. Get current pending balance.
-	// 5a. Check PendingIsZero flag — reject if nothing to apply.
+	// 4. Get current pending balance.
+	// 4a. Check PendingIsZero flag — reject if nothing to apply.
 	isZero, err := k.GetPendingIsZero(ctx, addrBytes, msg.Denom)
 	if err != nil {
 		return nil, err
@@ -102,7 +93,7 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 	}
 
 	// 9. Reset pending balance to Encrypt(0) with deterministic randomness (consensus-safe).
-	zeroBytes, err := deterministicZeroEncrypt(ctx, &pk, addrBytes, msg.Denom, "apply-pending/reset")
+	zeroBytes, err := zeroEncrypt()
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for pending reset: %v", err)
 	}

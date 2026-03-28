@@ -11,6 +11,7 @@ import (
 	"cosmossdk.io/core/store"
 	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	storetypes "cosmossdk.io/store/types"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/stretchr/testify/require"
@@ -219,11 +220,12 @@ func setupTestKeeper(t *testing.T) (keeper.Keeper, *mockBankKeeper, sdk.Context)
 
 	k := keeper.NewKeeper(storeService, nil, addrCodec, authority, bankKeeper)
 
-	// Minimal sdk.Context with an event manager and chain ID.
+	// Minimal sdk.Context with an event manager, chain ID, and gas meter.
 	ctx := sdk.Context{}.
 		WithContext(context.Background()).
 		WithChainID("test-chain-1").
-		WithEventManager(sdk.NewEventManager())
+		WithEventManager(sdk.NewEventManager()).
+		WithGasMeter(storetypes.NewInfiniteGasMeter())
 
 	return k, bankKeeper, ctx
 }

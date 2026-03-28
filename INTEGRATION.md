@@ -255,7 +255,29 @@ Requires all pending balances to be applied first. The client proves each balanc
 
 3. **MaxTransferBits=64 is recommended** for full uint64 range support. The range proof dimension is padded to 64 regardless, so smaller values offer no performance benefit.
 
-4. **BSGS table size for auditor decryption.** The auditor decrypts ciphertexts using Baby-Step Giant-Step (BSGS). Recommend `halfBits=24` for production (approximately 1GB RAM), which supports decryption of amounts up to 2^48. Larger tables enable decryption of larger amounts.
+4. **BSGS table size for auditor decryption.** The auditor decrypts ciphertexts using Baby-Step Giant-Step (BSGS). Each entry uses ~80 bytes (64-byte G1Affine key + 8-byte uint64 value + Go map overhead).
+
+   **Standard BSGS (`DecryptionTable`):**
+
+   | `halfBits` | Table Entries | Memory | Decryptable Range |
+   |---|---|---|---|
+   | 16 | 65,536 | ~5 MB | up to 2^32 (~4B) |
+   | 20 | 1,048,576 | ~80 MB | up to 2^40 (~1T) |
+   | 24 | 16,777,216 | ~1.3 GB | up to 2^48 |
+
+   **Split BSGS (`SplitDecryptionTable`)** — trades decryption time for memory:
+
+   | `splitBits` | `hiHalfBits` | Memory | Range | Worst-case time |
+   |---|---|---|---|---|
+   | 8 | 16 | ~5 MB | 2^40 | ~16M iters (~1-2s) |
+   | 8 | 20 | ~80 MB | 2^48 | ~256M iters (~25s) |
+
+   **Minimum auditor hardware requirements:**
+   - Standard BSGS with `halfBits=20`: 4 GB RAM minimum (80 MB table + headroom)
+   - Standard BSGS with `halfBits=24`: 4 GB RAM minimum (1.3 GB table + headroom)
+   - Split BSGS: 1 GB RAM sufficient for most configurations
+   - CPU: Table initialization is one-time; decryption itself is fast (sub-second for standard BSGS)
+   - Disk: Negligible (tables are in-memory only)
 
 5. **All proof generation is client-side.** The chain never sees plaintext amounts for confidential operations. Only shield and unshield reveal amounts publicly (by design, since they interact with `x/bank`).
 
@@ -263,11 +285,148 @@ Requires all pending balances to be applied first. The client proves each balanc
 
 7. **Fiat-Shamir transcripts include chain context.** All proofs bind to `chain_id`, `sender`, `receiver`, and `denom` to prevent replay attacks across chains or between different operations.
 
+## Rate Limiting / DoS Protection
+
+The module relies on standard Cosmos SDK gas metering as the primary defense against spam and DoS. Proof verification is computationally expensive, so gas costs should reflect this. Chain integrators should consider the following additional protections:
+
+### Recommended Ante Handler
+
+Implement a custom ante handler to enforce per-account or per-block limits on confidential operations:
+
+```go
+type ConfidentialRateLimitDecorator struct {
+    maxPerBlock    int
+    maxPerAccount  int
+    confidentialKeeper confidentialkeeper.Keeper
+}
+
+func (d ConfidentialRateLimitDecorator) AnteHandle(
+    ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler,
+) (sdk.Context, error) {
+    for _, msg := range tx.GetMsgs() {
+        switch msg.(type) {
+        case *confidentialtypes.MsgConfidentialSend,
+             *confidentialtypes.MsgShield,
+             *confidentialtypes.MsgUnshield:
+            // Check per-block and per-account counters
+            // Return error if limits exceeded
+        }
+    }
+    return next(ctx, tx, simulate)
+}
+```
+
+### Built-in Gas Metering
+
+The module charges gas for every proof verification, calibrated from benchmarks on Apple M1 Pro (arm64). These costs are defined in `keeper/verify.go` and can be adjusted by forking:
+
+| Proof Type | Gas Cost | Benchmark Latency (M1 Pro) |
+|---|---|---|
+| DLEQ verify | 50,000 | ~200μs |
+| Equality verify (3-key) | 100,000 | ~770μs |
+| Equality2 verify (2-key) | 70,000 | ~500μs (est.) |
+| ApplyPending verify | 70,000 | ~505μs |
+| Aggregate range (base) | 150,000 | — |
+| Aggregate range (per bit × commitments) | +2,000 | — |
+
+**Total gas per message type** (with `MaxTransferBits=64`):
+
+| Message | Proof Gas | Formula |
+|---|---|---|
+| `MsgShield` | 50,000 | DLEQ |
+| `MsgUnshield` | 178,000 | DLEQ + AggRange(64 bits × 1 commitment) |
+| `MsgConfidentialSend` | 506,000 | Equality + AggRange(64 bits × 2 commitments) |
+| `MsgApplyPending` | 70,000 | ApplyPending |
+| `MsgRotateKey` | 70,000 × N denoms | Equality2 per denom |
+
+These are proof-only costs. Standard Cosmos SDK tx overhead (signature verification, storage reads/writes) adds on top. The key principle: gas cost must exceed the computational cost of proof verification to prevent validators from being overwhelmed. Chains with slower validator hardware should increase the constants proportionally.
+
+### Gas Calibration for Your Hardware
+
+The default gas constants in `keeper/verify.go` are calibrated for Apple M1 Pro. To recalibrate for your validator hardware:
+
+1. **Run the cryptographic benchmarks** on a machine representative of your validators:
+   ```bash
+   cd bulletproofs-bn254 && go test -bench='Verify' -benchtime=5s -count=3
+   cd elgamal-bn254     && go test -bench='Verify' -benchtime=5s -count=3
+   ```
+
+2. **Compare to M1 Pro baselines** and compute a scaling factor:
+   ```
+   scaling_factor = your_latency / m1_pro_latency
+   ```
+   For example, if `AggregateVerify_2x40bit` takes 18ms on your hardware vs. 9ms on M1 Pro, `scaling_factor = 2.0`.
+
+3. **Scale all gas constants** by the factor, then add a 20% safety margin:
+   ```
+   new_gas = default_gas × scaling_factor × 1.2
+   ```
+
+4. **Update the constants** in `keeper/verify.go` (fork the module or use build tags):
+   ```go
+   const (
+       GasDLEQVerify           = 120_000  // 50_000 × 2.0 × 1.2
+       GasEqualityVerify       = 240_000  // 100_000 × 2.0 × 1.2
+       // ...
+   )
+   ```
+
+5. **Verify** that a `MsgConfidentialSend` with `MaxTransferBits=64` does not exceed your chain's block gas limit. With default constants, the proof gas alone is ~506,000.
+
+### Parameter Bounds
+
+The following governance-controlled parameters have enforced bounds to prevent misconfiguration:
+
+| Parameter | Min | Max | Default |
+|---|---|---|---|
+| `rotation_cooldown` | 1 | 1,000,000 | 100 |
+| `auditor_key_grace_period` | 1 | 1,000,000 | 100 |
+| `max_transfer_bits` | 1 | 64 | 64 |
+| `max_memo_size` | 0 | 4,096 | 1,024 |
+
+## Auditor Key Rotation
+
+The auditor ElGamal key can be rotated via governance. The module stores the previous key for a grace period so that in-flight transactions using the old key can still be audited.
+
+### Procedure
+
+1. **Generate new keypair** offline (HSM recommended):
+   ```bash
+   # Use the key generation tool from Step 7 above
+   # Store the new private key in the HSM before proceeding
+   ```
+
+2. **Submit governance proposal** to update the auditor key:
+   ```bash
+   tx gov submit-proposal \
+     --type=sdk.MsgSetAuditorKey \
+     --authority=<gov-module-address> \
+     --pubkey=<new-64-byte-hex-pubkey>
+   ```
+   The `MsgSetAuditorKey` handler (restricted to the governance authority) will:
+   - Save the current key as `prev_auditor_pub_key`
+   - Set the new key as `auditor_pub_key`
+   - Record the rotation height as `auditor_rotation_height`
+
+3. **Grace period** (`auditor_key_grace_period` blocks, default 100):
+   - The previous key is stored in params and remains available for auditors to decrypt ciphertexts created before the rotation
+   - New transactions use the new auditor key for their auditor ciphertext
+   - Auditor infrastructure should monitor both keys during this window
+
+4. **After the grace period**:
+   - The previous key is still stored in params but clients should only use the current key
+   - The auditor should retain the old private key permanently to decrypt historical ciphertexts from before the rotation
+   - A subsequent rotation will overwrite `prev_auditor_pub_key` with the current key
+
+### Important Notes
+
+- **Never discard old auditor private keys.** Each key is needed to decrypt ciphertexts created during its tenure. Historical audit capability requires all past keys.
+- **Coordinate with clients.** Clients query the current `auditor_pub_key` from params when constructing `MsgConfidentialSend`. Ensure clients refresh params after a rotation vote passes.
+- **Grace period should exceed max transaction latency.** Set `auditor_key_grace_period` higher than the maximum expected time between transaction creation and inclusion (typically 100-1000 blocks).
+
 ## Known Limitations
 
 - **No gRPC/REST endpoints in v1.** The module registers CLI commands and a direct keeper API, but full gRPC service registration requires protobuf service descriptors (planned for v2). Queries are accessible via CLI commands.
-
-- **Auditor grace period during key rotation is not fully enforced.** The `auditor_key_grace_period` parameter is stored but transactions using the old auditor key after rotation will fail proof verification. Applications should coordinate auditor key rotation carefully.
 
 - **Proto definitions planned for v2.** The current module uses manual Go types and JSON serialization rather than protobuf-generated types. This means `RegisterServices` is a no-op and the module cannot be discovered via gRPC reflection.
 

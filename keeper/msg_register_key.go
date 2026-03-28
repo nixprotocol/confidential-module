@@ -14,7 +14,7 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	// 1. Validate the public key (on-curve, not identity).
-	pk, err := unmarshalPublicKey(msg.Pubkey)
+	_, err := unmarshalPublicKey(msg.Pubkey)
 	if err != nil {
 		return nil, types.ErrInvalidPubkey.Wrap(err.Error())
 	}
@@ -52,7 +52,7 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 
 	for _, denom := range params.EnabledDenoms {
 		// Encrypt 0 with deterministic randomness (consensus-safe).
-		availBytes, err := deterministicZeroEncrypt(ctx, &pk, addrBytes, denom, "register/available")
+		availBytes, err := zeroEncrypt()
 		if err != nil {
 			return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for available balance: %v", err)
 		}
@@ -60,7 +60,7 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 			return nil, err
 		}
 
-		pendBytes, err := deterministicZeroEncrypt(ctx, &pk, addrBytes, denom, "register/pending")
+		pendBytes, err := zeroEncrypt()
 		if err != nil {
 			return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for pending balance: %v", err)
 		}

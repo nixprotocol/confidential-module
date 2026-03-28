@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
@@ -31,12 +32,20 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 	}
 	receiverBytes := receiverAddr.Bytes()
 
-	// 2. Check both keys registered.
-	if !k.HasRegisteredKey(ctx, senderBytes) {
-		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
+	// 2. Get registered pubkeys for sender and receiver (single store read each).
+	senderPk, err := k.getRegisteredPubkey(ctx, senderBytes)
+	if err != nil {
+		if errors.Is(err, types.ErrKeyNotRegistered) {
+			return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
+		}
+		return nil, err
 	}
-	if !k.HasRegisteredKey(ctx, receiverBytes) {
-		return nil, types.ErrKeyNotRegistered.Wrap("receiver has no registered key")
+	receiverPk, err := k.getRegisteredPubkey(ctx, receiverBytes)
+	if err != nil {
+		if errors.Is(err, types.ErrKeyNotRegistered) {
+			return nil, types.ErrKeyNotRegistered.Wrap("receiver has no registered key")
+		}
+		return nil, err
 	}
 
 	// 3. Load and validate params.
@@ -60,25 +69,7 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, types.ErrReceiverKeyRotated.Wrap("receiver key has been rotated since transaction was created")
 	}
 
-	// 5. Get public keys for sender, receiver, and auditor.
-	senderPkBytes, err := k.GetAccountPubkey(ctx, senderBytes)
-	if err != nil {
-		return nil, err
-	}
-	senderPk, err := unmarshalPublicKey(senderPkBytes)
-	if err != nil {
-		return nil, types.ErrInvalidPubkey.Wrap(err.Error())
-	}
-
-	receiverPkBytes, err := k.GetAccountPubkey(ctx, receiverBytes)
-	if err != nil {
-		return nil, err
-	}
-	receiverPk, err := unmarshalPublicKey(receiverPkBytes)
-	if err != nil {
-		return nil, types.ErrInvalidPubkey.Wrap(err.Error())
-	}
-
+	// 5. Unmarshal auditor pubkey.
 	auditorPk, err := unmarshalPublicKey(params.AuditorPubKey)
 	if err != nil {
 		return nil, types.ErrAuditorKeyNotSet.Wrap(err.Error())

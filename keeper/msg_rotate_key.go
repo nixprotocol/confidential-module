@@ -23,9 +23,10 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 	}
 	addrBytes := senderAddr.Bytes()
 
-	// 2. Check key registered.
-	if !k.HasRegisteredKey(ctx, addrBytes) {
-		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
+	// 2. Get sender's registered pubkey (single store read + unmarshal).
+	oldPk, err := k.getRegisteredPubkey(ctx, addrBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	// 3. Get current counter and check new_counter == current + 1.
@@ -72,17 +73,7 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 		}
 	}
 
-	// 7. Get the old public key.
-	oldPkBytes, err := k.GetAccountPubkey(ctx, addrBytes)
-	if err != nil {
-		return nil, err
-	}
-	oldPk, err := unmarshalPublicKey(oldPkBytes)
-	if err != nil {
-		return nil, types.ErrInvalidPubkey.Wrap("stored pubkey: " + err.Error())
-	}
-
-	// 8. Verify equality2 proofs for each denom: old available == new available (same plaintext).
+	// 7. Verify equality2 proofs for each denom: old available == new available (same plaintext).
 	// Build a map of denom -> ciphertext and denom -> proof from the message.
 	if len(msg.ReEncryptedAvailable) != len(params.EnabledDenoms) {
 		return nil, types.ErrInvalidProof.Wrapf(
@@ -131,13 +122,13 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 			return nil, err
 		}
 
-		// 9. Replace available balance with the re-encrypted ciphertext.
+		// 8. Replace available balance with the re-encrypted ciphertext.
 		if err := k.SetAvailableBalance(ctx, addrBytes, denom, newCtBytes); err != nil {
 			return nil, err
 		}
 
-		// 10. Reset pending to Encrypt(0) with deterministic randomness (consensus-safe).
-		zeroBytes, err := deterministicZeroEncrypt(ctx, &newPk, addrBytes, denom, "rotate/pending")
+		// 9. Reset pending to Encrypt(0) with deterministic randomness (consensus-safe).
+		zeroBytes, err := zeroEncrypt()
 		if err != nil {
 			return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for pending reset: %v", err)
 		}
@@ -151,7 +142,7 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 		}
 	}
 
-	// 11. Update pubkey, counter, and rotation height.
+	// 10. Update pubkey, counter, and rotation height.
 	if err := k.SetAccountPubkey(ctx, addrBytes, msg.NewPubkey); err != nil {
 		return nil, err
 	}
@@ -162,7 +153,7 @@ func (k msgServer) RotateKey(goCtx context.Context, msg *types.MsgRotateKey) (*t
 		return nil, err
 	}
 
-	// 12. Emit event.
+	// 11. Emit event.
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeRotateKey,
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),

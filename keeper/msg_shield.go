@@ -23,9 +23,10 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 	}
 	addrBytes := senderAddr.Bytes()
 
-	// 2. Check key registered.
-	if !k.HasRegisteredKey(ctx, addrBytes) {
-		return nil, types.ErrKeyNotRegistered.Wrap("sender has no registered key")
+	// 2. Get sender's registered pubkey (single store read + unmarshal).
+	pk, err := k.getRegisteredPubkey(ctx, addrBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	// 3. Load and validate params.
@@ -55,28 +56,18 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 		return nil, types.ErrInvalidAmount.Wrapf("amount exceeds %d-bit limit", params.MaxTransferBits)
 	}
 
-	// 8. Get sender's pubkey.
-	pkBytes, err := k.GetAccountPubkey(ctx, addrBytes)
-	if err != nil {
-		return nil, err
-	}
-	pk, err := unmarshalPublicKey(pkBytes)
-	if err != nil {
-		return nil, types.ErrInvalidPubkey.Wrap(err.Error())
-	}
-
-	// 9. Unmarshal the submitted ciphertext.
+	// 8. Unmarshal the submitted ciphertext.
 	ct, err := unmarshalCiphertext(msg.Ciphertext)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
 	}
 
-	// 10. Defensive guard: ensure amount fits in uint64.
+	// 9. Defensive guard: ensure amount fits in uint64.
 	if !amt.IsUint64() {
 		return nil, types.ErrInvalidAmount.Wrap("amount does not fit in uint64")
 	}
 
-	// 11. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
+	// 10. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
 	if err := k.verifyDLEQ(ctx, msg.Proof, &pk, ct, amt.Uint64(), msg.Sender, msg.Denom); err != nil {
 		return nil, err
 	}

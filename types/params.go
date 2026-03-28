@@ -27,10 +27,21 @@ func (p Params) Validate() error {
 	if p.MaxTransferBits <= 0 || p.MaxTransferBits > 64 {
 		return fmt.Errorf("max_transfer_bits must be in (0, 64], got %d", p.MaxTransferBits)
 	}
+	if p.RotationCooldown < 1 || p.RotationCooldown > 1_000_000 {
+		return fmt.Errorf("rotation_cooldown must be in [1, 1000000], got %d", p.RotationCooldown)
+	}
+	if p.AuditorKeyGracePeriod < 1 || p.AuditorKeyGracePeriod > 1_000_000 {
+		return fmt.Errorf("auditor_key_grace_period must be in [1, 1000000], got %d", p.AuditorKeyGracePeriod)
+	}
+	seenDenoms := make(map[string]bool, len(p.EnabledDenoms))
 	for _, denom := range p.EnabledDenoms {
 		if denom == "" {
 			return fmt.Errorf("enabled denom cannot be empty")
 		}
+		if seenDenoms[denom] {
+			return fmt.Errorf("duplicate enabled denom: %s", denom)
+		}
+		seenDenoms[denom] = true
 	}
 	if p.MaxMemoSize < 0 || p.MaxMemoSize > 4096 {
 		return fmt.Errorf("max_memo_size must be in [0, 4096], got %d", p.MaxMemoSize)
