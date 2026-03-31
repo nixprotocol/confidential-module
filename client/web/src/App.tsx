@@ -1,5 +1,6 @@
 // src/App.tsx
 import { useState, useEffect } from 'react';
+import { Toaster } from 'sonner';
 import { WalletConnect } from './components/WalletConnect';
 import { SetupWizard } from './components/SetupWizard';
 import { Dashboard } from './components/Dashboard';
@@ -79,28 +80,40 @@ export default function App() {
     checkState();
   }, [address]);
 
-  // Screen 1: Connect wallet
-  if (!address) {
-    return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-50 flex items-center justify-center">
-        <div className="text-center space-y-6">
-          <h1 className="text-3xl font-bold">Confidential Wallet</h1>
-          <p className="text-zinc-400">Private transactions on the Nix chain</p>
-          {connecting ? (
-            <p className="text-sm text-zinc-500">Connecting to chain...</p>
-          ) : (
-            <WalletConnect onConnect={setAddress} />
-          )}
+  return (
+    <>
+      <Toaster
+        position="bottom-right"
+        theme="dark"
+        toastOptions={{
+          style: { background: '#18181b', border: '1px solid #27272a', color: '#fafafa' },
+        }}
+      />
+
+      {/* Screen 1: Connect wallet */}
+      {!address && (
+        <div className="min-h-screen bg-zinc-950 text-zinc-50 flex items-center justify-center">
+          <div className="text-center space-y-6">
+            <h1 className="text-3xl font-bold">Confidential Wallet</h1>
+            <p className="text-zinc-400">Private transactions on the Nix chain</p>
+            {connecting ? (
+              <p className="text-sm text-zinc-500">Connecting to chain...</p>
+            ) : (
+              <WalletConnect onConnect={setAddress} />
+            )}
+          </div>
         </div>
-      </div>
-    );
-  }
+      )}
 
-  // Screen 2: Setup wizard (first-time key derivation + registration)
-  if (!setup) {
-    return <SetupWizard address={address} onComplete={() => setSetup(true)} />;
-  }
+      {/* Screen 2: Setup wizard */}
+      {address && !setup && (
+        <SetupWizard address={address} onComplete={() => setSetup(true)} />
+      )}
 
-  // Screen 3: Main dashboard
-  return <Dashboard address={address} syncWarning={syncWarning} />;
+      {/* Screen 3: Main dashboard */}
+      {address && setup && (
+        <Dashboard address={address} syncWarning={syncWarning} />
+      )}
+    </>
+  );
 }
