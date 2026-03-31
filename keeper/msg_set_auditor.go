@@ -11,8 +11,7 @@ import (
 )
 
 // SetAuditorKey handles the MsgSetAuditorKey governance message: validates the
-// authority, validates the new auditor public key, stores the previous key for
-// the grace period, and records the rotation height.
+// authority, validates the new auditor public key, and stores it in params.
 func (k msgServer) SetAuditorKey(goCtx context.Context, msg *types.MsgSetAuditorKey) (*types.MsgSetAuditorKeyResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -31,27 +30,19 @@ func (k msgServer) SetAuditorKey(goCtx context.Context, msg *types.MsgSetAuditor
 		return nil, types.ErrAuditorKeyNotSet.Wrap(err.Error())
 	}
 
-	// 3. Load current params.
+	// 3. Load current params and set the new auditor key.
 	params, err := k.GetParams(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// 4. Save the current auditor key as previous (for grace period).
-	if len(params.AuditorPubKey) > 0 {
-		params.PrevAuditorPubKey = params.AuditorPubKey
-	}
-
-	// 5. Set the new auditor key and record rotation height.
 	params.AuditorPubKey = msg.Pubkey
-	params.AuditorRotationHeight = uint64(ctx.BlockHeight())
 
-	// 6. Store updated params.
+	// 4. Store updated params.
 	if err := k.SetParams(ctx, params); err != nil {
 		return nil, err
 	}
 
-	// 7. Emit event.
+	// 5. Emit event.
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeSetAuditorKey,
 		sdk.NewAttribute(types.AttributeKeyAuditorPubkey, fmt.Sprintf("%x", msg.Pubkey)),

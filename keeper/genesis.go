@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"context"
-	"encoding/binary"
 
 	storetypes "cosmossdk.io/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -34,18 +33,6 @@ func (k Keeper) InitGenesis(ctx context.Context, gs *types.GenesisState) error {
 		// Store pubkey.
 		if err := k.SetAccountPubkey(ctx, addrBytes, acct.Pubkey); err != nil {
 			return err
-		}
-
-		// Store key counter.
-		if err := k.SetKeyCounter(ctx, addrBytes, acct.KeyCounter); err != nil {
-			return err
-		}
-
-		// Store rotation height.
-		if acct.RotationHeight > 0 {
-			if err := k.SetRotationHeight(ctx, addrBytes, acct.RotationHeight); err != nil {
-				return err
-			}
 		}
 
 		// Store available balances.
@@ -110,20 +97,6 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 			Address: addrStr,
 			Pubkey:  kv.value,
 		}
-
-		// Get key counter.
-		counter, err := k.GetKeyCounter(ctx, addrBytes)
-		if err != nil {
-			return nil, err
-		}
-		acct.KeyCounter = counter
-
-		// Get rotation height.
-		rotHeight, err := k.GetRotationHeight(ctx, addrBytes)
-		if err != nil {
-			return nil, err
-		}
-		acct.RotationHeight = rotHeight
 
 		// Collect available balances by iterating AvailableBalancePrefix + addr + "/".
 		availPrefix := types.AvailableBalanceKey(addrBytes, "")
@@ -203,6 +176,3 @@ func iteratePrefix(store interface {
 	}
 	return pairs, nil
 }
-
-// Ensure binary import is used.
-var _ = binary.BigEndian

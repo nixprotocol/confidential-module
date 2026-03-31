@@ -2,13 +2,12 @@ package keeper
 
 import (
 	"context"
-	"encoding/binary"
-	"encoding/json"
 	"fmt"
 
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
+	proto "github.com/cosmos/gogoproto/proto"
 
 	"github.com/nixprotocol/confidential-module/types"
 )
@@ -58,8 +57,11 @@ func (k Keeper) GetAddressCodec() address.Codec {
 
 // SetParams stores the module parameters.
 func (k Keeper) SetParams(ctx context.Context, params types.Params) error {
+	if err := params.Validate(); err != nil {
+		return err
+	}
 	kvStore := k.storeService.OpenKVStore(ctx)
-	bz, err := json.Marshal(params)
+	bz, err := proto.Marshal(&params)
 	if err != nil {
 		return err
 	}
@@ -77,7 +79,7 @@ func (k Keeper) GetParams(ctx context.Context) (types.Params, error) {
 		return types.DefaultParams(), nil
 	}
 	var params types.Params
-	if err := json.Unmarshal(bz, &params); err != nil {
+	if err := proto.Unmarshal(bz, &params); err != nil {
 		return types.Params{}, err
 	}
 	return params, nil
@@ -102,33 +104,6 @@ func (k Keeper) GetAccountPubkey(ctx context.Context, addr []byte) ([]byte, erro
 func (k Keeper) HasRegisteredKey(ctx context.Context, addr []byte) bool {
 	pk, err := k.GetAccountPubkey(ctx, addr)
 	return err == nil && pk != nil
-}
-
-// ---------- Key Counter ----------
-
-// SetKeyCounter stores the key counter for an account.
-func (k Keeper) SetKeyCounter(ctx context.Context, addr []byte, counter uint32) error {
-	kvStore := k.storeService.OpenKVStore(ctx)
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], counter)
-	return kvStore.Set(types.AccountKeyCounterKey(addr), buf[:])
-}
-
-// GetKeyCounter retrieves the key counter for an account.
-// Returns 0, nil if not found.
-func (k Keeper) GetKeyCounter(ctx context.Context, addr []byte) (uint32, error) {
-	kvStore := k.storeService.OpenKVStore(ctx)
-	bz, err := kvStore.Get(types.AccountKeyCounterKey(addr))
-	if err != nil {
-		return 0, err
-	}
-	if bz == nil {
-		return 0, nil
-	}
-	if len(bz) != 4 {
-		return 0, fmt.Errorf("invalid key counter length: %d", len(bz))
-	}
-	return binary.BigEndian.Uint32(bz), nil
 }
 
 // ---------- Available Balance ----------
@@ -186,31 +161,4 @@ func (k Keeper) GetPendingIsZero(ctx context.Context, addr []byte, denom string)
 		return false, nil
 	}
 	return len(bz) == 1 && bz[0] == 1, nil
-}
-
-// ---------- Rotation Height ----------
-
-// SetRotationHeight stores the block height of the last key rotation for an account.
-func (k Keeper) SetRotationHeight(ctx context.Context, addr []byte, height uint64) error {
-	kvStore := k.storeService.OpenKVStore(ctx)
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], height)
-	return kvStore.Set(types.AccountRotationHeightKey(addr), buf[:])
-}
-
-// GetRotationHeight retrieves the block height of the last key rotation.
-// Returns 0, nil if not found.
-func (k Keeper) GetRotationHeight(ctx context.Context, addr []byte) (uint64, error) {
-	kvStore := k.storeService.OpenKVStore(ctx)
-	bz, err := kvStore.Get(types.AccountRotationHeightKey(addr))
-	if err != nil {
-		return 0, err
-	}
-	if bz == nil {
-		return 0, nil
-	}
-	if len(bz) != 8 {
-		return 0, fmt.Errorf("invalid rotation height length: %d", len(bz))
-	}
-	return binary.BigEndian.Uint64(bz), nil
 }

@@ -107,16 +107,6 @@ func FuzzEqualityProofUnmarshal(f *testing.F) {
 	})
 }
 
-func FuzzEquality2ProofUnmarshal(f *testing.F) {
-	f.Add(make([]byte, 0))
-	f.Add(make([]byte, 352)) // Equality2ProofSize
-
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var proof elgamal.Equality2Proof
-		_ = proof.Unmarshal(data)
-	})
-}
-
 func FuzzApplyPendingProofUnmarshal(f *testing.F) {
 	f.Add(make([]byte, 0))
 	f.Add(make([]byte, 352)) // ApplyPendingProofSize
@@ -171,20 +161,6 @@ func FuzzEqualityVerify(f *testing.F) {
 			return
 		}
 		elgamal.VerifyEquality(&proof, &fuzzPk1, &fuzzPk2, &fuzzPk3, &fuzzCt1, &fuzzCt2, &fuzzCt3, nil)
-	})
-}
-
-func FuzzEquality2Verify(f *testing.F) {
-	ensureFuzzFixtures()
-
-	f.Add(make([]byte, 352))
-
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var proof elgamal.Equality2Proof
-		if err := proof.Unmarshal(data); err != nil {
-			return
-		}
-		elgamal.VerifyEquality2(&proof, &fuzzPk1, &fuzzPk2, &fuzzCt1, &fuzzCt2, nil)
 	})
 }
 

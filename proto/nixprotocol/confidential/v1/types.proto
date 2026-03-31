@@ -3,18 +3,11 @@ package nixprotocol.confidential.v1;
 
 option go_package = "github.com/nixprotocol/confidential-module/types";
 
-import "gogoproto/gogo.proto";
-
 // Params defines the module parameters.
 message Params {
   bytes auditor_pub_key = 1;
-  bytes prev_auditor_pub_key = 2;
-  uint64 auditor_rotation_height = 3;
-  uint64 auditor_key_grace_period = 4;
-  repeated string enabled_denoms = 5;
+  reserved 2, 3, 4, 5, 7, 8; // removed: prev_auditor_pub_key, auditor_rotation_height, auditor_key_grace_period, enabled_denoms, rotation_cooldown, max_memo_size
   int32 max_transfer_bits = 6;
-  uint64 rotation_cooldown = 7;
-  int32 max_memo_size = 8;
 }
 
 // BalanceEntry stores a ciphertext balance for a denomination.
@@ -27,16 +20,4 @@ message BalanceEntry {
 message PendingIsZeroEntry {
   string denom = 1;
   bool is_zero = 2;
-}
-
-// DenomCiphertext stores a ciphertext for a specific denom (used in MsgRotateKey).
-message DenomCiphertext {
-  string denom = 1;
-  bytes ciphertext = 2;
-}
-
-// DenomProof stores a proof for a specific denom (used in MsgRotateKey).
-message DenomProof {
-  string denom = 1;
-  bytes proof = 2;
 }

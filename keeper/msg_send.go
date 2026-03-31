@@ -30,6 +30,9 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 	if err != nil {
 		return nil, types.ErrKeyNotRegistered.Wrap("invalid receiver address")
 	}
+	if senderAddr.Equals(receiverAddr) {
+		return nil, types.ErrInvalidAmount.Wrap("sender and receiver must be different")
+	}
 	receiverBytes := receiverAddr.Bytes()
 
 	// 2. Get registered pubkeys for sender and receiver (single store read each).
@@ -56,26 +59,14 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 	if len(params.AuditorPubKey) == 0 {
 		return nil, types.ErrAuditorKeyNotSet.Wrap("auditor key not set")
 	}
-	if !isDenomEnabled(params, msg.Denom) {
-		return nil, types.ErrDenomNotEnabled.Wrapf("denom %s is not enabled", msg.Denom)
-	}
 
-	// 4. Check receiver key counter matches (protect against key rotation race).
-	receiverCounter, err := k.GetKeyCounter(ctx, receiverBytes)
-	if err != nil {
-		return nil, err
-	}
-	if msg.ReceiverKeyCounter != receiverCounter {
-		return nil, types.ErrReceiverKeyRotated.Wrap("receiver key has been rotated since transaction was created")
-	}
-
-	// 5. Unmarshal auditor pubkey.
+	// 4. Unmarshal auditor pubkey.
 	auditorPk, err := unmarshalPublicKey(params.AuditorPubKey)
 	if err != nil {
 		return nil, types.ErrAuditorKeyNotSet.Wrap(err.Error())
 	}
 
-	// 6. Unmarshal all three ciphertexts.
+	// 5. Unmarshal all three ciphertexts.
 	senderCt, err := unmarshalCiphertext(msg.SenderUpdate)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrap("sender_update: " + err.Error())
@@ -89,12 +80,12 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, types.ErrInvalidCiphertext.Wrap("auditor_update: " + err.Error())
 	}
 
-	// 7. Verify equality proof: all three ciphertexts encrypt the same amount.
+	// 6. Verify equality proof: all three ciphertexts encrypt the same amount.
 	if err := k.verifyEquality(ctx, msg.EqualityProof, &senderPk, &receiverPk, &auditorPk, senderCt, receiverCt, auditorCt, msg.Sender, msg.Receiver, msg.Denom); err != nil {
 		return nil, err
 	}
 
-	// 8. Prepare commitments for aggregate range proof.
+	// 7. Prepare commitments for aggregate range proof.
 	// The range proof verifies two statements:
 	//   (a) transfer amount >= 0
 	//   (b) sender's new available balance >= 0
@@ -109,7 +100,7 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 	if err != nil {
 		return nil, err
 	}
-	availCt, err := unmarshalCiphertext(availBytes)
+	availCt, err := unmarshalOrZero(availBytes)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrap("stored available balance: " + err.Error())
 	}
@@ -120,12 +111,12 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 	// The commitments for the range proof are the C2 components.
 	commitments := []bn254.G1Affine{senderCt.C2, newBalanceCt.C2}
 
-	// 9. Verify aggregate range proof.
+	// 8. Verify aggregate range proof.
 	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, &senderPk, int(params.MaxTransferBits), msg.Sender, msg.Receiver, msg.Denom); err != nil {
 		return nil, err
 	}
 
-	// 10. Update sender's available balance: available -= senderUpdate.
+	// 9. Update sender's available balance: available -= senderUpdate.
 	newAvail, err := subCiphertexts(availBytes, msg.SenderUpdate)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
@@ -134,7 +125,7 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, err
 	}
 
-	// 11. Update receiver's pending balance: pending += receiverUpdate.
+	// 10. Update receiver's pending balance: pending += receiverUpdate.
 	pendBytes, err := k.GetPendingBalance(ctx, receiverBytes, msg.Denom)
 	if err != nil {
 		return nil, err
@@ -147,12 +138,12 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, err
 	}
 
-	// 12. Clear the receiver's pending-is-zero flag (they now have incoming funds).
+	// 11. Clear the receiver's pending-is-zero flag (they now have incoming funds).
 	if err := k.SetPendingIsZero(ctx, receiverBytes, msg.Denom, false); err != nil {
 		return nil, err
 	}
 
-	// 13. Emit event with the auditor ciphertext for audit trail.
+	// 12. Emit event with the auditor ciphertext for audit trail.
 	eventAttrs := []sdk.Attribute{
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
 		sdk.NewAttribute(types.AttributeKeyReceiver, msg.Receiver),

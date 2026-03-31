@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/nixprotocol/confidential-module/types"
 )
@@ -45,30 +43,19 @@ func CmdQueryBalance() *cobra.Command {
 				return err
 			}
 
-			addr, err := sdk.AccAddressFromBech32(args[0])
+			queryClient := types.NewQueryClient(clientCtx)
+			res, err := queryClient.Balance(cmd.Context(), &types.QueryBalanceRequest{
+				Address: args[0],
+				Denom:   args[1],
+			})
 			if err != nil {
-				return err
-			}
-			denom := args[1]
-
-			// Query available balance from store.
-			availKey := types.AvailableBalanceKey(addr.Bytes(), denom)
-			availRes, _, err := clientCtx.QueryStore(availKey, types.StoreKey)
-			if err != nil {
-				return fmt.Errorf("query available balance: %w", err)
-			}
-
-			// Query pending balance from store.
-			pendKey := types.PendingBalanceKey(addr.Bytes(), denom)
-			pendRes, _, err := clientCtx.QueryStore(pendKey, types.StoreKey)
-			if err != nil {
-				return fmt.Errorf("query pending balance: %w", err)
+				return fmt.Errorf("query balance: %w", err)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Address:   %s\n", args[0])
-			fmt.Fprintf(cmd.OutOrStdout(), "Denom:     %s\n", denom)
-			fmt.Fprintf(cmd.OutOrStdout(), "Available: %x\n", availRes)
-			fmt.Fprintf(cmd.OutOrStdout(), "Pending:   %x\n", pendRes)
+			fmt.Fprintf(cmd.OutOrStdout(), "Denom:     %s\n", args[1])
+			fmt.Fprintf(cmd.OutOrStdout(), "Available: %x\n", res.Available)
+			fmt.Fprintf(cmd.OutOrStdout(), "Pending:   %x\n", res.Pending)
 			return nil
 		},
 	}
@@ -88,27 +75,19 @@ func CmdQueryParams() *cobra.Command {
 				return err
 			}
 
-			// Query params from store.
-			paramsKey := types.ParamsKeyBytes()
-			res, _, err := clientCtx.QueryStore(paramsKey, types.StoreKey)
+			queryClient := types.NewQueryClient(clientCtx)
+			res, err := queryClient.Params(cmd.Context(), &types.QueryParamsRequest{})
 			if err != nil {
 				return fmt.Errorf("query params: %w", err)
 			}
 
-			if len(res) == 0 {
-				// No params stored; show defaults.
-				params := types.DefaultParams()
-				bz, _ := json.MarshalIndent(params, "", "  ")
-				fmt.Fprintf(cmd.OutOrStdout(), "%s\n", string(bz))
+			if res.Params == nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "(no params set)\n")
 				return nil
 			}
 
-			var params types.Params
-			if err := json.Unmarshal(res, &params); err != nil {
-				return fmt.Errorf("unmarshal params: %w", err)
-			}
-			bz, _ := json.MarshalIndent(params, "", "  ")
-			fmt.Fprintf(cmd.OutOrStdout(), "%s\n", string(bz))
+			fmt.Fprintf(cmd.OutOrStdout(), "Auditor PubKey:    %x\n", res.Params.AuditorPubKey)
+			fmt.Fprintf(cmd.OutOrStdout(), "Max Transfer Bits: %d\n", res.Params.MaxTransferBits)
 			return nil
 		},
 	}
@@ -128,27 +107,16 @@ func CmdQueryAuditorKey() *cobra.Command {
 				return err
 			}
 
-			// Query params from store and extract auditor key.
-			paramsKey := types.ParamsKeyBytes()
-			res, _, err := clientCtx.QueryStore(paramsKey, types.StoreKey)
+			queryClient := types.NewQueryClient(clientCtx)
+			res, err := queryClient.AuditorKey(cmd.Context(), &types.QueryAuditorKeyRequest{})
 			if err != nil {
-				return fmt.Errorf("query params: %w", err)
+				return fmt.Errorf("query auditor key: %w", err)
 			}
 
-			if len(res) == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Auditor key: (not set)\n")
-				return nil
-			}
-
-			var params types.Params
-			if err := json.Unmarshal(res, &params); err != nil {
-				return fmt.Errorf("unmarshal params: %w", err)
-			}
-
-			if len(params.AuditorPubKey) == 0 {
+			if len(res.AuditorPubKey) == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "Auditor key: (not set)\n")
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Auditor key: %x\n", params.AuditorPubKey)
+				fmt.Fprintf(cmd.OutOrStdout(), "Auditor key: %x\n", res.AuditorPubKey)
 			}
 			return nil
 		},
@@ -169,40 +137,19 @@ func CmdQueryAccountInfo() *cobra.Command {
 				return err
 			}
 
-			addr, err := sdk.AccAddressFromBech32(args[0])
+			queryClient := types.NewQueryClient(clientCtx)
+			res, err := queryClient.AccountInfo(cmd.Context(), &types.QueryAccountInfoRequest{
+				Address: args[0],
+			})
 			if err != nil {
-				return err
+				return fmt.Errorf("query account info: %w", err)
 			}
 
-			// Query pubkey from store.
-			pkKey := types.AccountPubkeyKey(addr.Bytes())
-			pkRes, _, err := clientCtx.QueryStore(pkKey, types.StoreKey)
-			if err != nil {
-				return fmt.Errorf("query account pubkey: %w", err)
+			fmt.Fprintf(cmd.OutOrStdout(), "Address:    %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "Registered: %v\n", res.Registered)
+			if res.Registered {
+				fmt.Fprintf(cmd.OutOrStdout(), "Pubkey:     %x\n", res.Pubkey)
 			}
-
-			if len(pkRes) == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Address:    %s\n", args[0])
-				fmt.Fprintf(cmd.OutOrStdout(), "Registered: false\n")
-				return nil
-			}
-
-			// Query key counter from store.
-			kcKey := types.AccountKeyCounterKey(addr.Bytes())
-			kcRes, _, err := clientCtx.QueryStore(kcKey, types.StoreKey)
-			if err != nil {
-				return fmt.Errorf("query key counter: %w", err)
-			}
-
-			var counter uint32
-			if len(kcRes) == 4 {
-				counter = uint32(kcRes[0])<<24 | uint32(kcRes[1])<<16 | uint32(kcRes[2])<<8 | uint32(kcRes[3])
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "Address:     %s\n", args[0])
-			fmt.Fprintf(cmd.OutOrStdout(), "Registered:  true\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "Pubkey:      %x\n", pkRes)
-			fmt.Fprintf(cmd.OutOrStdout(), "Key counter: %d\n", counter)
 			return nil
 		},
 	}

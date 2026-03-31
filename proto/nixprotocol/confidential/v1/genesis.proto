@@ -13,9 +13,8 @@ message GenesisState {
 message AccountState {
   string address = 1;
   bytes pubkey = 2;
-  uint32 key_counter = 3;
+  reserved 3, 7; // removed: key_counter, rotation_height
   repeated BalanceEntry available_balances = 4;
   repeated BalanceEntry pending_balances = 5;
   repeated PendingIsZeroEntry pending_is_zero = 6;
-  uint64 rotation_height = 7;
 }

@@ -29,56 +29,49 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 		return nil, err
 	}
 
-	// 3. Load and validate params.
+	// 3. Load params.
 	params, err := k.GetParams(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// 4. Check auditor key is set.
 	if len(params.AuditorPubKey) == 0 {
-		return nil, types.ErrAuditorKeyNotSet.Wrap("auditor key not set")
+		ctx.Logger().Warn("confidential: shield proceeding without auditor key configured")
 	}
 
-	// 5. Check denom enabled.
-	if !isDenomEnabled(params, msg.Denom) {
-		return nil, types.ErrDenomNotEnabled.Wrapf("denom %s is not enabled", msg.Denom)
-	}
-
-	// 6. Parse amount.
+	// 4. Parse amount.
 	amt, ok := math.NewIntFromString(msg.Amount)
 	if !ok || !amt.IsPositive() {
 		return nil, types.ErrInvalidAmount.Wrap("amount must be a positive integer")
 	}
 
-	// 7. Check amount fits in MaxTransferBits.
+	// 5. Check amount fits in MaxTransferBits.
 	if amt.BigInt().BitLen() > int(params.MaxTransferBits) {
 		return nil, types.ErrInvalidAmount.Wrapf("amount exceeds %d-bit limit", params.MaxTransferBits)
 	}
 
-	// 8. Unmarshal the submitted ciphertext.
+	// 6. Unmarshal the submitted ciphertext.
 	ct, err := unmarshalCiphertext(msg.Ciphertext)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
 	}
 
-	// 9. Defensive guard: ensure amount fits in uint64.
+	// 7. Defensive guard: ensure amount fits in uint64.
 	if !amt.IsUint64() {
 		return nil, types.ErrInvalidAmount.Wrap("amount does not fit in uint64")
 	}
 
-	// 10. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
+	// 8. Verify DLEQ proof that the ciphertext encrypts the claimed amount.
 	if err := k.verifyDLEQ(ctx, msg.Proof, &pk, ct, amt.Uint64(), msg.Sender, msg.Denom); err != nil {
 		return nil, err
 	}
 
-	// 11. Debit plaintext tokens from x/bank.
+	// 9. Debit plaintext tokens from x/bank.
 	coin := sdk.NewCoin(msg.Denom, amt)
 	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, senderAddr, types.ModuleAccountName, sdk.NewCoins(coin)); err != nil {
 		return nil, types.ErrInsufficientBalance.Wrap(err.Error())
 	}
 
-	// 12. Homomorphically add ciphertext to available balance.
+	// 10. Homomorphically add ciphertext to available balance.
 	availBytes, err := k.GetAvailableBalance(ctx, addrBytes, msg.Denom)
 	if err != nil {
 		return nil, err
@@ -91,7 +84,7 @@ func (k msgServer) Shield(goCtx context.Context, msg *types.MsgShield) (*types.M
 		return nil, err
 	}
 
-	// 13. Emit event (plaintext amount is public for shield operations).
+	// 11. Emit event (plaintext amount is public for shield operations).
 	eventAttrs := []sdk.Attribute{
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
 		sdk.NewAttribute(types.AttributeKeyDenom, msg.Denom),

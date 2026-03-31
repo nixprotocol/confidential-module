@@ -21,14 +21,11 @@ import (
 // Helpers shared across negative tests
 // ---------------------------------------------------------------------------
 
-// defaultParams returns test params with auditor key set and "uatom" enabled.
+// defaultParams returns test params with auditor key set.
 func defaultParams(auditorPk []byte) types.Params {
 	return types.Params{
-		AuditorPubKey:         auditorPk,
-		EnabledDenoms:         []string{"uatom"},
-		MaxTransferBits:       64,
-		AuditorKeyGracePeriod: 100,
-		RotationCooldown:      100,
+		AuditorPubKey:   auditorPk,
+		MaxTransferBits: 64,
 	}
 }
 
@@ -37,9 +34,8 @@ func defaultParams(auditorPk []byte) types.Params {
 func registerAccount(t *testing.T, msgServer types.MsgServer, ctx sdk.Context, addr string, pk []byte) {
 	t.Helper()
 	_, err := msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
-		Sender:  addr,
-		Pubkey:  pk,
-		Counter: 0,
+		Sender: addr,
+		Pubkey: pk,
 	})
 	require.NoError(t, err)
 }
@@ -98,9 +94,8 @@ func TestRegisterKey_InvalidPubkey(t *testing.T) {
 
 	// 32 bytes instead of 64 — should fail ValidateBasic or handler.
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
-		Sender:  alice,
-		Pubkey:  make([]byte, 32),
-		Counter: 0,
+		Sender: alice,
+		Pubkey: make([]byte, 32),
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInvalidPubkey)
@@ -118,9 +113,8 @@ func TestRegisterKey_IdentityPubkey(t *testing.T) {
 
 	// All-zeros 64 bytes = identity point in uncompressed form.
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
-		Sender:  alice,
-		Pubkey:  make([]byte, 64),
-		Counter: 0,
+		Sender: alice,
+		Pubkey: make([]byte, 64),
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInvalidPubkey)
@@ -144,34 +138,11 @@ func TestRegisterKey_AlreadyRegistered(t *testing.T) {
 
 	// Second registration should fail.
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
-		Sender:  alice,
-		Pubkey:  pkBytes,
-		Counter: 0,
+		Sender: alice,
+		Pubkey: pkBytes,
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrKeyAlreadyRegistered)
-}
-
-func TestRegisterKey_NonZeroCounter(t *testing.T) {
-	k, _, ctx := setupTestKeeper(t)
-	msgServer := keeper.NewMsgServerImpl(k)
-
-	_, alicePk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-	require.NoError(t, k.SetParams(ctx, defaultParams(elgamal.MarshalPublicKey(&auditorPk))))
-
-	alice := sdk.AccAddress([]byte("alice_______________")).String()
-
-	// Counter=1 on first registration should fail.
-	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
-		Sender:  alice,
-		Pubkey:  elgamal.MarshalPublicKey(&alicePk),
-		Counter: 1,
-	})
-	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrInvalidCounter)
 }
 
 // ===========================================================================
@@ -198,59 +169,6 @@ func TestShield_NotRegistered(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrKeyNotRegistered)
-}
-
-func TestShield_NoAuditorKey(t *testing.T) {
-	k, _, ctx := setupTestKeeper(t)
-	msgServer := keeper.NewMsgServerImpl(k)
-
-	_, alicePk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-
-	// Set params with empty auditor key.
-	require.NoError(t, k.SetParams(ctx, types.Params{
-		AuditorPubKey:   nil,
-		EnabledDenoms:   []string{"uatom"},
-		MaxTransferBits: 64,
-	}))
-
-	alice := sdk.AccAddress([]byte("alice_______________")).String()
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
-
-	_, err = msgServer.Shield(ctx, &types.MsgShield{
-		Sender:     alice,
-		Denom:      "uatom",
-		Amount:     "1000",
-		Ciphertext: make([]byte, 128),
-		Proof:      make([]byte, elgamal.DLEQProofSize),
-	})
-	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrAuditorKeyNotSet)
-}
-
-func TestShield_DenomNotEnabled(t *testing.T) {
-	k, _, ctx := setupTestKeeper(t)
-	msgServer := keeper.NewMsgServerImpl(k)
-
-	_, alicePk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-	require.NoError(t, k.SetParams(ctx, defaultParams(elgamal.MarshalPublicKey(&auditorPk))))
-
-	alice := sdk.AccAddress([]byte("alice_______________")).String()
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
-
-	// Use a denom that is not in enabled_denoms ("uosmo" is not enabled).
-	_, err = msgServer.Shield(ctx, &types.MsgShield{
-		Sender:     alice,
-		Denom:      "uosmo",
-		Amount:     "1000",
-		Ciphertext: make([]byte, 128),
-		Proof:      make([]byte, elgamal.DLEQProofSize),
-	})
-	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrDenomNotEnabled)
 }
 
 func TestShield_ZeroAmount(t *testing.T) {
@@ -344,56 +262,17 @@ func TestSend_ReceiverNotRegistered(t *testing.T) {
 
 	// Bob is NOT registered. Send to Bob should fail.
 	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
-		Sender:             alice,
-		Receiver:           bob,
-		Denom:              "uatom",
-		SenderUpdate:       make([]byte, 128),
-		ReceiverUpdate:     make([]byte, 128),
-		AuditorUpdate:      make([]byte, 128),
-		RangeProof:         make([]byte, 100),
-		EqualityProof:      make([]byte, elgamal.EqualityProofSize),
-		ReceiverKeyCounter: 0,
+		Sender:         alice,
+		Receiver:       bob,
+		Denom:          "uatom",
+		SenderUpdate:   make([]byte, 128),
+		ReceiverUpdate: make([]byte, 128),
+		AuditorUpdate:  make([]byte, 128),
+		RangeProof:     make([]byte, 100),
+		EqualityProof:  make([]byte, elgamal.EqualityProofSize),
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrKeyNotRegistered)
-}
-
-func TestSend_ReceiverKeyRotated(t *testing.T) {
-	k, bankKeeper, ctx := setupTestKeeper(t)
-	msgServer := keeper.NewMsgServerImpl(k)
-
-	aliceSk, alicePk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-	_, bobPk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-	require.NoError(t, k.SetParams(ctx, defaultParams(elgamal.MarshalPublicKey(&auditorPk))))
-
-	aliceAddr := sdk.AccAddress([]byte("alice_______________"))
-	alice := aliceAddr.String()
-	bob := sdk.AccAddress([]byte("bob_________________")).String()
-	bankKeeper.fundAccount(alice, "uatom", 10000)
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
-	registerAccount(t, msgServer, ctx, bob, elgamal.MarshalPublicKey(&bobPk))
-
-	// Shield so Alice has balance.
-	shieldAccount(t, k, msgServer, ctx, aliceSk, alicePk, alice, 1000)
-
-	// Send with wrong receiver key counter (5 instead of 0).
-	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
-		Sender:             alice,
-		Receiver:           bob,
-		Denom:              "uatom",
-		SenderUpdate:       make([]byte, 128),
-		ReceiverUpdate:     make([]byte, 128),
-		AuditorUpdate:      make([]byte, 128),
-		RangeProof:         make([]byte, 100),
-		EqualityProof:      make([]byte, elgamal.EqualityProofSize),
-		ReceiverKeyCounter: 5,
-	})
-	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrReceiverKeyRotated)
 }
 
 func TestSend_InvalidEqualityProof(t *testing.T) {
@@ -451,15 +330,14 @@ func TestSend_InvalidEqualityProof(t *testing.T) {
 	proofBytes[len(proofBytes)/2] ^= 0xFF
 
 	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
-		Sender:             alice,
-		Receiver:           bob,
-		Denom:              "uatom",
-		SenderUpdate:       senderCtBytes,
-		ReceiverUpdate:     receiverCtBytes,
-		AuditorUpdate:      auditorCtBytes,
-		RangeProof:         make([]byte, 100), // will not reach range proof verification
-		EqualityProof:      proofBytes,
-		ReceiverKeyCounter: 0,
+		Sender:         alice,
+		Receiver:       bob,
+		Denom:          "uatom",
+		SenderUpdate:   senderCtBytes,
+		ReceiverUpdate: receiverCtBytes,
+		AuditorUpdate:  auditorCtBytes,
+		RangeProof:     make([]byte, 100), // will not reach range proof verification
+		EqualityProof:  proofBytes,
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInvalidProof)
@@ -642,7 +520,7 @@ func TestSetAuditorKey_InvalidPubkey(t *testing.T) {
 	}
 	err := msg.ValidateBasic()
 	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrAuditorKeyNotSet)
+	require.ErrorIs(t, err, types.ErrInvalidPubkey)
 }
 
 func TestSetAuditorKey_InvalidPubkeyIdentity(t *testing.T) {
@@ -661,42 +539,66 @@ func TestSetAuditorKey_InvalidPubkeyIdentity(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrAuditorKeyNotSet)
 }
 
-// ===========================================================================
-// MsgRotateKey errors
-// ===========================================================================
+// ---------------------------------------------------------------------------
+// deterministicZeroEncrypt
+// ---------------------------------------------------------------------------
 
-func TestRotateKey_WrongCounter(t *testing.T) {
+func TestDeterministicZeroEncrypt_NonTrivial(t *testing.T) {
+	_, pk, err := elgamal.KeyGen(rand.Reader)
+	require.NoError(t, err)
+
+	addr := []byte("alice_______________")
+	ct, err := keeper.DeterministicZeroEncryptForTest(&pk, addr, "uatom", 100)
+	require.NoError(t, err)
+	require.Len(t, ct, 128)
+
+	// Must NOT be the identity ciphertext (all zeros).
+	allZero := make([]byte, 128)
+	require.NotEqual(t, allZero, ct, "zero ciphertext must not be identity (O, O)")
+
+	// Must be deterministic: same inputs → same output.
+	ct2, err := keeper.DeterministicZeroEncryptForTest(&pk, addr, "uatom", 100)
+	require.NoError(t, err)
+	require.Equal(t, ct, ct2, "same inputs must produce same ciphertext")
+
+	// Different block height → different ciphertext.
+	ct3, err := keeper.DeterministicZeroEncryptForTest(&pk, addr, "uatom", 101)
+	require.NoError(t, err)
+	require.NotEqual(t, ct, ct3, "different block height must produce different ciphertext")
+}
+
+// ---------------------------------------------------------------------------
+// MsgUnshield: not registered
+// ---------------------------------------------------------------------------
+
+func TestUnshield_NotRegistered(t *testing.T) {
 	k, _, ctx := setupTestKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	_, alicePk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
-	_, newPk, err := elgamal.KeyGen(rand.Reader)
-	require.NoError(t, err)
 	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
+
 	require.NoError(t, k.SetParams(ctx, defaultParams(elgamal.MarshalPublicKey(&auditorPk))))
 
-	alice := sdk.AccAddress([]byte("alice_______________")).String()
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
-
-	// Try to rotate with counter=5 when current=0 (expected=1).
-	_, err = msgServer.RotateKey(ctx, &types.MsgRotateKey{
-		Sender:     alice,
-		NewPubkey:  elgamal.MarshalPublicKey(&newPk),
-		NewCounter: 5,
-		ReEncryptedAvailable: []*types.DenomCiphertext{
-			{Denom: "uatom", Ciphertext: make([]byte, 128)},
-		},
-		EqualityProofs: []*types.DenomProof{
-			{Denom: "uatom", Proof: make([]byte, 100)},
-		},
+	// Try to unshield without registering.
+	unregistered := sdk.AccAddress([]byte("unregistered________")).String()
+	_, err = msgServer.Unshield(ctx, &types.MsgUnshield{
+		Sender:          unregistered,
+		Denom:           "uatom",
+		Amount:          "100",
+		Ciphertext:      make([]byte, 128),
+		RangeProof:      make([]byte, 228),
+		DecryptionProof: make([]byte, elgamal.DLEQProofSize),
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrInvalidCounter)
+	require.ErrorIs(t, err, types.ErrKeyNotRegistered)
 }
 
-func TestRotateKey_PendingNotZero(t *testing.T) {
+// ---------------------------------------------------------------------------
+// MsgConfidentialSend: wrong auditor key
+// ---------------------------------------------------------------------------
+
+func TestSend_WrongAuditorKey(t *testing.T) {
 	k, bankKeeper, ctx := setupTestKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
@@ -706,37 +608,60 @@ func TestRotateKey_PendingNotZero(t *testing.T) {
 	require.NoError(t, err)
 	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
+	_, wrongAuditorPk, err := elgamal.KeyGen(rand.Reader)
+	require.NoError(t, err)
+
+	// Set params with the real auditor key.
 	require.NoError(t, k.SetParams(ctx, defaultParams(elgamal.MarshalPublicKey(&auditorPk))))
 
-	aliceAddr := sdk.AccAddress([]byte("alice_______________"))
-	alice := aliceAddr.String()
-	bobAddr := sdk.AccAddress([]byte("bob_________________"))
-	bob := bobAddr.String()
+	alice := sdk.AccAddress([]byte("alice_______________")).String()
+	bob := sdk.AccAddress([]byte("bob_________________")).String()
 	bankKeeper.fundAccount(alice, "uatom", 10000)
+
 	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
 	registerAccount(t, msgServer, ctx, bob, elgamal.MarshalPublicKey(&bobPk))
 
-	// Shield so Alice has balance.
+	// Shield first so Alice has a balance.
 	shieldAccount(t, k, msgServer, ctx, aliceSk, alicePk, alice, 1000)
 
-	// Manually set Bob's pending-is-zero flag to false to simulate incoming funds.
-	require.NoError(t, k.SetPendingIsZero(ctx, bobAddr.Bytes(), "uatom", false))
+	// Build a send with the WRONG auditor key.
+	sendAmount := uint64(100)
+	var rS, rR, rA fr.Element
+	_, _ = rS.SetRandom()
+	_, _ = rR.SetRandom()
+	_, _ = rA.SetRandom()
 
-	// Bob tries to rotate without applying pending.
-	_, newPk, err := elgamal.KeyGen(rand.Reader)
+	sCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &alicePk, &rS)
+	rCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &bobPk, &rR)
+	// Encrypt auditor ciphertext under the WRONG key.
+	aCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &wrongAuditorPk, &rA)
+
+	eqT := k.BuildTranscriptForTest(ctx, alice, bob, "uatom")
+	// Equality proof uses wrong auditor pk — should fail verification on-chain.
+	eqProof, err := elgamal.ProveEquality(
+		sendAmount,
+		&rS, &rR, &rA,
+		&alicePk, &bobPk, &wrongAuditorPk,
+		&sCt, &rCt, &aCt,
+		eqT,
+	)
 	require.NoError(t, err)
 
-	_, err = msgServer.RotateKey(ctx, &types.MsgRotateKey{
-		Sender:     bob,
-		NewPubkey:  elgamal.MarshalPublicKey(&newPk),
-		NewCounter: 1,
-		ReEncryptedAvailable: []*types.DenomCiphertext{
-			{Denom: "uatom", Ciphertext: make([]byte, 128)},
-		},
-		EqualityProofs: []*types.DenomProof{
-			{Denom: "uatom", Proof: make([]byte, 100)},
-		},
+	sB, _ := sCt.Marshal()
+	rB, _ := rCt.Marshal()
+	aB, _ := aCt.Marshal()
+
+	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
+		Sender:         alice,
+		Receiver:       bob,
+		Denom:          "uatom",
+		SenderUpdate:   sB,
+		ReceiverUpdate: rB,
+		AuditorUpdate:  aB,
+		EqualityProof:  eqProof.Marshal(),
+		RangeProof:     make([]byte, 228), // dummy, won't reach range proof check
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrPendingNotZero)
+	require.ErrorIs(t, err, types.ErrInvalidProof)
 }
+

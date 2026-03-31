@@ -17,6 +17,12 @@ import (
 // ciphertext encrypts the claimed amount, verifies a range proof that the
 // remaining balance is non-negative, subtracts the ciphertext from available
 // balance, and credits x/bank.
+//
+// Note: Unshield does NOT require an auditor key. The unshield amount is public
+// (emitted in the event and visible in x/bank), so the auditor gains no
+// additional information. This allows users to withdraw funds even before
+// governance has configured an auditor. ConfidentialSend is the only operation
+// that requires the auditor key (for the auditor ciphertext).
 func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*types.MsgUnshieldResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -33,16 +39,13 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 		return nil, err
 	}
 
-	// 3. Load and validate params.
+	// 3. Load params.
 	params, err := k.GetParams(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if !isDenomEnabled(params, msg.Denom) {
-		return nil, types.ErrDenomNotEnabled.Wrapf("denom %s is not enabled", msg.Denom)
-	}
 	if len(params.AuditorPubKey) == 0 {
-		return nil, types.ErrAuditorKeyNotSet.Wrap("auditor key not set")
+		ctx.Logger().Warn("confidential: unshield proceeding without auditor key configured")
 	}
 
 	// 4. Parse amount.
@@ -73,21 +76,16 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 	}
 
 	// 9. Compute remaining balance commitment for range proof.
-	// remaining = available - ciphertext
-	// The range proof commitment is the C2 component of the remaining balance,
-	// which serves as a Pedersen commitment with H = pk.
 	availBytes, err := k.GetAvailableBalance(ctx, addrBytes, msg.Denom)
 	if err != nil {
 		return nil, err
 	}
-	availCt, err := unmarshalCiphertext(availBytes)
+	availCt, err := unmarshalOrZero(availBytes)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrap("stored available balance: " + err.Error())
 	}
 	remainingCt := elgamal.Sub(availCt, ct)
 
-	// The commitment for range proof: remainingCt.C2 is the Pedersen commitment
-	// to the remaining balance with blinding base H = senderPk.
 	commitments := []bn254.G1Affine{remainingCt.C2}
 
 	// 10. Verify range proof: remaining balance >= 0.

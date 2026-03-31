@@ -45,6 +45,6 @@ message QueryAccountInfoRequest {
 }
 message QueryAccountInfoResponse {
   bytes pubkey = 1;
-  uint32 key_counter = 2;
+  reserved 2; // was: key_counter
   bool registered = 3;
 }

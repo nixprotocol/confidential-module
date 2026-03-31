@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/hex"
 	"fmt"
-	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +12,24 @@ import (
 
 	"github.com/nixprotocol/confidential-module/types"
 )
+
+const (
+	flagEncryptedMemo = "encrypted-memo"
+	flagAuditorMemo   = "auditor-memo"
+)
+
+// parseOptionalHexFlag reads an optional hex flag value and returns the decoded bytes.
+func parseOptionalHexFlag(cmd *cobra.Command, name string) ([]byte, error) {
+	val, _ := cmd.Flags().GetString(name)
+	if val == "" {
+		return nil, nil
+	}
+	bz, err := hex.DecodeString(val)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s hex: %w", name, err)
+	}
+	return bz, nil
+}
 
 // GetTxCmd returns the transaction commands for the confidential module.
 func GetTxCmd() *cobra.Command {
@@ -31,7 +48,6 @@ func GetTxCmd() *cobra.Command {
 		CmdApplyPending(),
 		CmdUnshield(),
 		CmdSetAuditorKey(),
-		CmdEnableDenoms(),
 	)
 
 	return cmd
@@ -53,11 +69,13 @@ func CmdRegisterKey() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid pubkey hex: %w", err)
 			}
+			if len(pubkey) != 64 {
+				return fmt.Errorf("pubkey must be 64 bytes (128 hex chars), got %d bytes", len(pubkey))
+			}
 
 			msg := &types.MsgRegisterKey{
-				Sender:  clientCtx.GetFromAddress().String(),
-				Pubkey:  pubkey,
-				Counter: 0,
+				Sender: clientCtx.GetFromAddress().String(),
+				Pubkey: pubkey,
 			}
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
@@ -92,17 +110,24 @@ func CmdShield() *cobra.Command {
 				return fmt.Errorf("invalid proof hex: %w", err)
 			}
 
+			memo, err := parseOptionalHexFlag(cmd, flagEncryptedMemo)
+			if err != nil {
+				return err
+			}
+
 			msg := &types.MsgShield{
-				Sender:     clientCtx.GetFromAddress().String(),
-				Denom:      denom,
-				Amount:     amount,
-				Ciphertext: ciphertext,
-				Proof:      proof,
+				Sender:        clientCtx.GetFromAddress().String(),
+				Denom:         denom,
+				Amount:        amount,
+				Ciphertext:    ciphertext,
+				Proof:         proof,
+				EncryptedMemo: memo,
 			}
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
+	cmd.Flags().String(flagEncryptedMemo, "", "Optional encrypted memo (hex)")
 	flags.AddTxFlagsToCmd(cmd)
 	return cmd
 }
@@ -110,9 +135,9 @@ func CmdShield() *cobra.Command {
 // CmdConfidentialSend creates a confidential transfer transaction.
 func CmdConfidentialSend() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "send [receiver] [denom] [sender-update-hex] [receiver-update-hex] [auditor-update-hex] [range-proof-hex] [equality-proof-hex] [receiver-key-counter]",
+		Use:   "send [receiver] [denom] [sender-update-hex] [receiver-update-hex] [auditor-update-hex] [range-proof-hex] [equality-proof-hex]",
 		Short: "Send a confidential transfer",
-		Args:  cobra.ExactArgs(8),
+		Args:  cobra.ExactArgs(7),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
@@ -147,26 +172,34 @@ func CmdConfidentialSend() *cobra.Command {
 				return fmt.Errorf("invalid equality-proof hex: %w", err)
 			}
 
-			receiverKeyCounter, err := strconv.ParseUint(args[7], 10, 32)
+			memo, err := parseOptionalHexFlag(cmd, flagEncryptedMemo)
 			if err != nil {
-				return fmt.Errorf("invalid receiver-key-counter: %w", err)
+				return err
+			}
+
+			auditorMemo, err := parseOptionalHexFlag(cmd, flagAuditorMemo)
+			if err != nil {
+				return err
 			}
 
 			msg := &types.MsgConfidentialSend{
-				Sender:             clientCtx.GetFromAddress().String(),
-				Receiver:           receiver,
-				Denom:              denom,
-				SenderUpdate:       senderUpdate,
-				ReceiverUpdate:     receiverUpdate,
-				AuditorUpdate:      auditorUpdate,
-				RangeProof:         rangeProof,
-				EqualityProof:      equalityProof,
-				ReceiverKeyCounter: uint32(receiverKeyCounter),
+				Sender:         clientCtx.GetFromAddress().String(),
+				Receiver:       receiver,
+				Denom:          denom,
+				SenderUpdate:   senderUpdate,
+				ReceiverUpdate: receiverUpdate,
+				AuditorUpdate:  auditorUpdate,
+				RangeProof:     rangeProof,
+				EqualityProof:  equalityProof,
+				EncryptedMemo:  memo,
+				AuditorMemo:    auditorMemo,
 			}
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
+	cmd.Flags().String(flagEncryptedMemo, "", "Optional encrypted memo for sender (hex)")
+	cmd.Flags().String(flagAuditorMemo, "", "Optional encrypted memo for auditor (hex)")
 	flags.AddTxFlagsToCmd(cmd)
 	return cmd
 }
@@ -195,16 +228,23 @@ func CmdApplyPending() *cobra.Command {
 				return fmt.Errorf("invalid proof hex: %w", err)
 			}
 
+			memo, err := parseOptionalHexFlag(cmd, flagEncryptedMemo)
+			if err != nil {
+				return err
+			}
+
 			msg := &types.MsgApplyPending{
 				Sender:             clientCtx.GetFromAddress().String(),
 				Denom:              denom,
 				NewAvailableUpdate: newAvailUpdate,
 				Proof:              proof,
+				EncryptedMemo:      memo,
 			}
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
+	cmd.Flags().String(flagEncryptedMemo, "", "Optional encrypted memo (hex)")
 	flags.AddTxFlagsToCmd(cmd)
 	return cmd
 }
@@ -239,6 +279,11 @@ func CmdUnshield() *cobra.Command {
 				return fmt.Errorf("invalid decryption-proof hex: %w", err)
 			}
 
+			memo, err := parseOptionalHexFlag(cmd, flagEncryptedMemo)
+			if err != nil {
+				return err
+			}
+
 			msg := &types.MsgUnshield{
 				Sender:          clientCtx.GetFromAddress().String(),
 				Denom:           denom,
@@ -246,11 +291,13 @@ func CmdUnshield() *cobra.Command {
 				Ciphertext:      ciphertext,
 				RangeProof:      rangeProof,
 				DecryptionProof: decryptionProof,
+				EncryptedMemo:   memo,
 			}
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
+	cmd.Flags().String(flagEncryptedMemo, "", "Optional encrypted memo (hex)")
 	flags.AddTxFlagsToCmd(cmd)
 	return cmd
 }
@@ -284,25 +331,5 @@ func CmdSetAuditorKey() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-	return cmd
-}
-
-// CmdEnableDenoms is a helper that shows how to enable denoms via genesis update.
-func CmdEnableDenoms() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "enable-denoms [denom1] [denom2] ...",
-		Short: "Show instructions for enabling denominations",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("To enable denoms for confidential transfers:")
-			fmt.Println("1. Stop the chain")
-			fmt.Println("2. Edit genesis.json → app_state.confidential.params.enabled_denoms")
-			fmt.Printf("3. Set to: %v\n", args)
-			fmt.Println("4. Restart the chain")
-			fmt.Println()
-			fmt.Println("In production, use a governance proposal to update module params.")
-			return nil
-		},
-	}
 	return cmd
 }

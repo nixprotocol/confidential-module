@@ -24,11 +24,6 @@ func (gs GenesisState) Validate() error {
 		return fmt.Errorf("invalid params: %w", err)
 	}
 
-	// If denominations are enabled, auditor key is required.
-	if len(gs.Params.EnabledDenoms) > 0 && len(gs.Params.AuditorPubKey) == 0 {
-		return fmt.Errorf("auditor public key is required when denominations are enabled")
-	}
-
 	seen := make(map[string]bool)
 	for i, acct := range gs.Accounts {
 		if acct.Address == "" {
@@ -48,28 +43,36 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("account %s: invalid pubkey: %w", acct.Address, err)
 		}
 
+		seenAvailDenoms := make(map[string]bool)
 		for j, bal := range acct.AvailableBalances {
 			if bal.Denom == "" {
 				return fmt.Errorf("account %d (%s): available balance %d: denom cannot be empty", i, acct.Address, j)
 			}
+			if seenAvailDenoms[bal.Denom] {
+				return fmt.Errorf("account %d (%s): duplicate available balance denom %s", i, acct.Address, bal.Denom)
+			}
+			seenAvailDenoms[bal.Denom] = true
 			if len(bal.Ciphertext) != 128 {
 				return fmt.Errorf("account %d (%s): available balance %d: ciphertext must be 128 bytes, got %d", i, acct.Address, j, len(bal.Ciphertext))
 			}
-			// Validate ciphertext points are on curve.
 			var ct elgamal.Ciphertext
 			if err := ct.Unmarshal(bal.Ciphertext); err != nil {
 				return fmt.Errorf("account %s denom %s: invalid available ciphertext: %w", acct.Address, bal.Denom, err)
 			}
 		}
 
+		seenPendDenoms := make(map[string]bool)
 		for j, bal := range acct.PendingBalances {
 			if bal.Denom == "" {
 				return fmt.Errorf("account %d (%s): pending balance %d: denom cannot be empty", i, acct.Address, j)
 			}
+			if seenPendDenoms[bal.Denom] {
+				return fmt.Errorf("account %d (%s): duplicate pending balance denom %s", i, acct.Address, bal.Denom)
+			}
+			seenPendDenoms[bal.Denom] = true
 			if len(bal.Ciphertext) != 128 {
 				return fmt.Errorf("account %d (%s): pending balance %d: ciphertext must be 128 bytes, got %d", i, acct.Address, j, len(bal.Ciphertext))
 			}
-			// Validate ciphertext points are on curve.
 			var ct elgamal.Ciphertext
 			if err := ct.Unmarshal(bal.Ciphertext); err != nil {
 				return fmt.Errorf("account %s denom %s: invalid pending ciphertext: %w", acct.Address, bal.Denom, err)

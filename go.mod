@@ -1,6 +1,6 @@
 module github.com/nixprotocol/confidential-module
 
-go 1.23.2
+go 1.24.0
 
 toolchain go1.26.0
 
@@ -18,7 +18,6 @@ require (
 	github.com/nixprotocol/elgamal-bn254 v0.0.0
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.41.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20250707201910-8d1bb00bc6a7
 	google.golang.org/grpc v1.75.0
 )
@@ -147,12 +146,13 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.17.0 // indirect
+	golang.org/x/crypto v0.45.0
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
-	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/term v0.34.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/term v0.37.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250818200422-3122310a409c // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
@@ -167,6 +167,7 @@ replace (
 	// Go 1.26 compatibility (remove when cosmossdk.io/log is updated)
 	github.com/bytedance/sonic => github.com/bytedance/sonic v1.15.0
 
-	github.com/nixprotocol/bulletproofs-bn254 => ../bulletproofs-bn254
-	github.com/nixprotocol/elgamal-bn254 => ../elgamal-bn254
+	// Module path differs from repo name (bulletproofs-bn25 vs bulletproofs-bn254)
+	github.com/nixprotocol/bulletproofs-bn254 => github.com/nixprotocol/bulletproofs-bn25 v0.0.0-20260330215430-dc32e3eea31a
+	github.com/nixprotocol/elgamal-bn254 => github.com/nixprotocol/elgamal-bn254 v0.0.0-20260330213519-ca5a4813298c
 )

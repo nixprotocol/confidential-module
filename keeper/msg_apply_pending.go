@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -28,16 +29,7 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 		return nil, err
 	}
 
-	// 3. Check denom enabled.
-	params, err := k.GetParams(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if !isDenomEnabled(params, msg.Denom) {
-		return nil, types.ErrDenomNotEnabled.Wrapf("denom %s is not enabled", msg.Denom)
-	}
-
-	// 4. Get current pending balance.
+	// 3. Get current pending balance.
 	// 4a. Check PendingIsZero flag — reject if nothing to apply.
 	isZero, err := k.GetPendingIsZero(ctx, addrBytes, msg.Denom)
 	if err != nil {
@@ -92,8 +84,9 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 		return nil, err
 	}
 
-	// 9. Reset pending balance to Encrypt(0) with deterministic randomness (consensus-safe).
-	zeroBytes, err := zeroEncrypt()
+	// 9. Reset pending balance to Enc(0) with deterministic non-zero randomness.
+	blockHeight := uint64(ctx.BlockHeight())
+	zeroBytes, err := deterministicZeroEncrypt(&pk, addrBytes, msg.Denom, blockHeight)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for pending reset: %v", err)
 	}
@@ -107,11 +100,14 @@ func (k msgServer) ApplyPending(goCtx context.Context, msg *types.MsgApplyPendin
 	}
 
 	// 11. Emit event.
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypeApplyPending,
+	eventAttrs := []sdk.Attribute{
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
 		sdk.NewAttribute(types.AttributeKeyDenom, msg.Denom),
-	))
+	}
+	if len(msg.EncryptedMemo) > 0 {
+		eventAttrs = append(eventAttrs, sdk.NewAttribute(types.AttributeKeyEncryptedMemo, fmt.Sprintf("%x", msg.EncryptedMemo)))
+	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeApplyPending, eventAttrs...))
 
 	return &types.MsgApplyPendingResponse{}, nil
 }

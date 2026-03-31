@@ -2,10 +2,16 @@ package keeper
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"math/big"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"golang.org/x/crypto/hkdf"
 
 	bulletproofs "github.com/nixprotocol/bulletproofs-bn254"
 	elgamal "github.com/nixprotocol/elgamal-bn254"
@@ -28,8 +34,7 @@ const (
 	GasEqualityVerify      = 100_000
 	GasAggregateRangeBase  = 150_000 // base cost for aggregate range proof
 	GasAggregateRangePerBit = 2_000  // additional cost per bit of range
-	GasApplyPendingVerify  = 70_000
-	GasEquality2Verify     = 70_000
+	GasApplyPendingVerify = 70_000
 )
 
 // buildTranscript creates a Fiat-Shamir transcript with chain context per spec Section 4.2.2.
@@ -119,38 +124,50 @@ func (k Keeper) verifyApplyPending(ctx context.Context, proofBytes []byte, pk *b
 	return nil
 }
 
-// verifyEquality2 deserializes and verifies a 2-key equality proof.
-// Used for MsgRotateKey to prove that old-key and new-key ciphertexts
-// encrypt the same balance.
-func (k Keeper) verifyEquality2(ctx context.Context, proofBytes []byte, pk1, pk2 *bn254.G1Affine, ct1, ct2 *elgamal.Ciphertext, sender, denom string) error {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx.GasMeter().ConsumeGas(GasEquality2Verify, "equality2 proof verification")
-
-	var proof elgamal.Equality2Proof
-	if err := proof.Unmarshal(proofBytes); err != nil {
-		return types.ErrInvalidProof.Wrap("invalid proof format")
-	}
-	transcript := k.buildTranscript(ctx, sender, "", denom)
-	if !elgamal.VerifyEquality2(&proof, pk1, pk2, ct1, ct2, transcript) {
-		return types.ErrInvalidProof.Wrap("proof verification failed")
-	}
-	return nil
-}
-
 // ---------- Helpers ----------
 
-// zeroEncrypt creates an encryption of zero with ZERO randomness.
-// This produces the identity ciphertext (O, O) which is deterministic across all
-// validators and allows the client to correctly track cumulative randomness from
-// the first real operation (shield) onwards.
+// deterministicZeroEncrypt creates an encryption of zero with deterministic
+// non-zero randomness derived from chain context. The result is indistinguishable
+// from a non-zero ciphertext to observers who don't know the secret key.
 //
-// Privacy note: a zero-randomness zero-encryption IS distinguishable as "empty".
-// This is acceptable because all new accounts start with zero balance (public knowledge).
-// Once the user shields tokens, the balance becomes indistinguishable.
-func zeroEncrypt() ([]byte, error) {
-	// Zero value + zero randomness = identity ciphertext (O, O)
-	// C1 = 0*G = O, C2 = 0*G + 0*pk = O (regardless of pk)
-	var ct elgamal.Ciphertext // both C1 and C2 are zero (identity point)
+// r = SHA256(domain || addr || "/" || denom || "/" || blockHeight)
+// C1 = r*G, C2 = 0*G + r*pk = r*pk
+//
+// All validators derive the same r from the same inputs, maintaining consensus.
+func deterministicZeroEncrypt(pk *bn254.G1Affine, addr []byte, denom string, blockHeight uint64) ([]byte, error) {
+	// Derive deterministic randomness from chain context using HKDF-SHA256.
+	// IKM = domain tag, salt = addr + denom + height (the changing nonce).
+	var heightBuf [8]byte
+	binary.BigEndian.PutUint64(heightBuf[:], blockHeight)
+
+	salt := make([]byte, 0, len(addr)+1+len(denom)+1+8)
+	salt = append(salt, addr...)
+	salt = append(salt, '/')
+	salt = append(salt, []byte(denom)...)
+	salt = append(salt, '/')
+	salt = append(salt, heightBuf[:]...)
+
+	reader := hkdf.New(sha256.New, []byte("x/confidential/zero-encrypt"), salt, nil)
+
+	// Read 64 bytes (512 bits) for negligible bias when reduced mod ~254-bit field.
+	var buf [64]byte
+	if _, err := io.ReadFull(reader, buf[:]); err != nil {
+		return nil, fmt.Errorf("hkdf read: %w", err)
+	}
+
+	var r fr.Element
+	r.SetBigInt(new(big.Int).SetBytes(buf[:]))
+
+	// Guard against astronomically unlikely r == 0.
+	if r.IsZero() {
+		buf[0] ^= 0x01
+		r.SetBigInt(new(big.Int).SetBytes(buf[:]))
+	}
+
+	ct, _, err := elgamal.EncryptWithRandomness(0, pk, &r)
+	if err != nil {
+		return nil, err
+	}
 	return ct.Marshal()
 }
 
@@ -189,14 +206,26 @@ func unmarshalPublicKey(data []byte) (bn254.G1Affine, error) {
 	return elgamal.UnmarshalPublicKey(data)
 }
 
+// unmarshalOrZero parses a serialized ciphertext, treating nil as the zero
+// ciphertext (identity). This allows handlers to work with balances that were
+// never explicitly initialized (e.g., when a denom is added after registration).
+func unmarshalOrZero(data []byte) (*elgamal.Ciphertext, error) {
+	if data == nil {
+		var ct elgamal.Ciphertext // zero-value = identity ciphertext (O, O)
+		return &ct, nil
+	}
+	return unmarshalCiphertext(data)
+}
+
 // addCiphertexts performs homomorphic addition of two serialized ciphertexts.
+// A nil operand is treated as the zero (identity) ciphertext.
 // Returns the serialized result (128 bytes).
 func addCiphertexts(a, b []byte) ([]byte, error) {
-	ctA, err := unmarshalCiphertext(a)
+	ctA, err := unmarshalOrZero(a)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal first ciphertext: %w", err)
 	}
-	ctB, err := unmarshalCiphertext(b)
+	ctB, err := unmarshalOrZero(b)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal second ciphertext: %w", err)
 	}
@@ -205,13 +234,14 @@ func addCiphertexts(a, b []byte) ([]byte, error) {
 }
 
 // subCiphertexts performs homomorphic subtraction of two serialized ciphertexts (a - b).
+// A nil operand is treated as the zero (identity) ciphertext.
 // Returns the serialized result (128 bytes).
 func subCiphertexts(a, b []byte) ([]byte, error) {
-	ctA, err := unmarshalCiphertext(a)
+	ctA, err := unmarshalOrZero(a)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal first ciphertext: %w", err)
 	}
-	ctB, err := unmarshalCiphertext(b)
+	ctB, err := unmarshalOrZero(b)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal second ciphertext: %w", err)
 	}

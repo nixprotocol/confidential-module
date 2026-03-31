@@ -1,7 +1,6 @@
 package module
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -25,8 +24,6 @@ var (
 	_ module.HasGenesis = (*AppModule)(nil)
 
 	_ appmodule.AppModule       = (*AppModule)(nil)
-	_ appmodule.HasBeginBlocker = (*AppModule)(nil)
-	_ appmodule.HasEndBlocker   = (*AppModule)(nil)
 )
 
 // AppModule implements the Cosmos SDK AppModule interface for the confidential module.
@@ -79,7 +76,10 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 
 func (am AppModule) DefaultGenesis(_ codec.JSONCodec) json.RawMessage {
 	gs := types.DefaultGenesisState()
-	bz, _ := json.Marshal(gs)
+	bz, err := json.Marshal(gs)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal default genesis: %v", err))
+	}
 	return bz
 }
 
@@ -114,11 +114,3 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, _ codec.JSONCodec) json.RawMe
 }
 
 func (AppModule) ConsensusVersion() uint64 { return 1 }
-
-func (am AppModule) BeginBlock(_ context.Context) error {
-	return nil
-}
-
-func (am AppModule) EndBlock(_ context.Context) error {
-	return nil
-}

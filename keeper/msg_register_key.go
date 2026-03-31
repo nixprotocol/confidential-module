@@ -2,14 +2,15 @@ package keeper
 
 import (
 	"context"
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/nixprotocol/confidential-module/types"
 )
 
-// RegisterKey handles the MsgRegisterKey message: validates the public key,
-// stores it with counter 0, and initializes zero-encrypted balances for all
-// enabled denominations.
+// RegisterKey handles the MsgRegisterKey message: validates the public key
+// and stores it for the account.
 func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey) (*types.MsgRegisterKeyResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -31,53 +32,16 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 		return nil, types.ErrKeyAlreadyRegistered.Wrap("key already registered for this account")
 	}
 
-	// 4. Counter must be 0 for initial registration.
-	if msg.Counter != 0 {
-		return nil, types.ErrInvalidCounter.Wrap("initial counter must be 0")
-	}
-
-	// 5. Store pubkey and counter.
+	// 4. Store pubkey.
 	if err := k.SetAccountPubkey(ctx, addrBytes, msg.Pubkey); err != nil {
 		return nil, err
 	}
-	if err := k.SetKeyCounter(ctx, addrBytes, 0); err != nil {
-		return nil, err
-	}
 
-	// 6. Initialize zero-encrypted balances for all enabled denoms.
-	params, err := k.GetParams(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, denom := range params.EnabledDenoms {
-		// Encrypt 0 with deterministic randomness (consensus-safe).
-		availBytes, err := zeroEncrypt()
-		if err != nil {
-			return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for available balance: %v", err)
-		}
-		if err := k.SetAvailableBalance(ctx, addrBytes, denom, availBytes); err != nil {
-			return nil, err
-		}
-
-		pendBytes, err := zeroEncrypt()
-		if err != nil {
-			return nil, types.ErrInvalidCiphertext.Wrapf("failed to encrypt zero for pending balance: %v", err)
-		}
-		if err := k.SetPendingBalance(ctx, addrBytes, denom, pendBytes); err != nil {
-			return nil, err
-		}
-
-		// Mark pending as zero since we just initialized it.
-		if err := k.SetPendingIsZero(ctx, addrBytes, denom, true); err != nil {
-			return nil, err
-		}
-	}
-
-	// 7. Emit event.
+	// 5. Emit event.
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeRegisterKey,
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
+		sdk.NewAttribute(types.AttributeKeyPubkey, fmt.Sprintf("%x", msg.Pubkey)),
 	))
 
 	return &types.MsgRegisterKeyResponse{}, nil

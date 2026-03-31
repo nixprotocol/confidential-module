@@ -4,7 +4,6 @@ package nixprotocol.confidential.v1;
 option go_package = "github.com/nixprotocol/confidential-module/types";
 
 import "cosmos/msg/v1/msg.proto";
-import "nixprotocol/confidential/v1/types.proto";
 
 service Msg {
   option (cosmos.msg.v1.service) = true;
@@ -15,14 +14,13 @@ service Msg {
   rpc ApplyPending(MsgApplyPending) returns (MsgApplyPendingResponse);
   rpc Unshield(MsgUnshield) returns (MsgUnshieldResponse);
   rpc SetAuditorKey(MsgSetAuditorKey) returns (MsgSetAuditorKeyResponse);
-  rpc RotateKey(MsgRotateKey) returns (MsgRotateKeyResponse);
 }
 
 message MsgRegisterKey {
   option (cosmos.msg.v1.signer) = "sender";
   string sender = 1;
   bytes pubkey = 2;
-  uint32 counter = 3;
+  reserved 3; // was: counter (removed — keys are deterministic)
 }
 message MsgRegisterKeyResponse {}
 
@@ -47,7 +45,7 @@ message MsgConfidentialSend {
   bytes auditor_update = 6;
   bytes range_proof = 7;
   bytes equality_proof = 8;
-  uint32 receiver_key_counter = 9;
+  reserved 9; // was: receiver_key_counter (removed — no key rotation)
   bytes encrypted_memo = 10;
   bytes auditor_memo = 11;
 }
@@ -59,6 +57,7 @@ message MsgApplyPending {
   string denom = 2;
   bytes new_available_update = 3;
   bytes proof = 4;
+  bytes encrypted_memo = 5;
 }
 message MsgApplyPendingResponse {}
 
@@ -80,13 +79,3 @@ message MsgSetAuditorKey {
   bytes pubkey = 2;
 }
 message MsgSetAuditorKeyResponse {}
-
-message MsgRotateKey {
-  option (cosmos.msg.v1.signer) = "sender";
-  string sender = 1;
-  bytes new_pubkey = 2;
-  uint32 new_counter = 3;
-  repeated DenomCiphertext re_encrypted_available = 4;
-  repeated DenomProof equality_proofs = 5;
-}
-message MsgRotateKeyResponse {}

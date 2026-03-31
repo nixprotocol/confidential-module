@@ -13,7 +13,6 @@ func RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgApplyPending{}, "confidential/MsgApplyPending", nil)
 	cdc.RegisterConcrete(&MsgUnshield{}, "confidential/MsgUnshield", nil)
 	cdc.RegisterConcrete(&MsgSetAuditorKey{}, "confidential/MsgSetAuditorKey", nil)
-	cdc.RegisterConcrete(&MsgRotateKey{}, "confidential/MsgRotateKey", nil)
 }
 
 func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
@@ -24,6 +23,5 @@ func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 		&MsgApplyPending{},
 		&MsgUnshield{},
 		&MsgSetAuditorKey{},
-		&MsgRotateKey{},
 	)
 }
