@@ -1,20 +1,27 @@
 // src/components/Dashboard.tsx
 import { useState, useEffect, useCallback } from 'react';
-import { WalletConnect } from './WalletConnect';
-import { BalanceCard } from './BalanceCard';
-import { ShieldModal } from './ShieldModal';
-import { SendModal } from './SendModal';
-import { UnshieldModal } from './UnshieldModal';
-import { ApplyPendingModal } from './ApplyPendingModal';
+import { toast } from 'sonner';
 import { chainClient } from '@/lib/chain';
 import { cryptoService } from '@/lib/crypto';
 import { loadState } from '@/lib/state';
 import { truncateAddress } from '@/lib/utils';
-import { Loader2 } from 'lucide-react';
+import { Shield, ArrowUpRight, ArrowDownLeft, Clock, ScrollText, Copy, Loader2 } from 'lucide-react';
+import { ShieldPanel } from './ShieldPanel';
+import { SendPanel } from './SendPanel';
+import { UnshieldPanel } from './UnshieldPanel';
+import { PendingPanel } from './PendingPanel';
+import { HistoryPanel } from './HistoryPanel';
 
-type Modal = null | 'shield' | 'send' | 'unshield' | 'applyPending';
+type Tab = 'shield' | 'send' | 'unshield' | 'pending' | 'history';
 
-// Denoms the wallet tracks
+const TABS: { id: Tab; label: string; icon: typeof Shield }[] = [
+  { id: 'shield', label: 'Shield', icon: Shield },
+  { id: 'send', label: 'Send', icon: ArrowUpRight },
+  { id: 'unshield', label: 'Unshield', icon: ArrowDownLeft },
+  { id: 'pending', label: 'Pending', icon: Clock },
+  { id: 'history', label: 'History', icon: ScrollText },
+];
+
 const DENOMS = ['anix'];
 
 interface DenomData {
@@ -30,9 +37,9 @@ interface DashboardProps {
 }
 
 export function Dashboard({ address, syncWarning }: DashboardProps) {
+  const [activeTab, setActiveTab] = useState<Tab>('shield');
+  const [selectedDenom, setSelectedDenom] = useState(DENOMS[0]);
   const [denomData, setDenomData] = useState<Record<string, DenomData>>({});
-  const [activeModal, setActiveModal] = useState<Modal>(null);
-  const [activeDenom, setActiveDenom] = useState<string>(DENOMS[0]);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -47,21 +54,24 @@ export function Dashboard({ address, syncWarning }: DashboardProps) {
       for (const denom of DENOMS) {
         setDenomData((prev) => ({
           ...prev,
-          [denom]: { ...prev[denom], loading: true, publicBalance: prev[denom]?.publicBalance ?? null, availableAmount: prev[denom]?.availableAmount ?? null, pendingAmount: prev[denom]?.pendingAmount ?? null },
+          [denom]: {
+            ...prev[denom],
+            loading: true,
+            publicBalance: prev[denom]?.publicBalance ?? null,
+            availableAmount: prev[denom]?.availableAmount ?? null,
+            pendingAmount: prev[denom]?.pendingAmount ?? null,
+          },
         }));
 
         try {
-          // Public balance
           const pubBal = await chainClient.queryBankBalance(address, denom);
 
-          // Confidential balance
           let availAmount: string | null = null;
           let pendAmount: string | null = null;
 
           try {
             const confBal = await chainClient.queryConfidentialBalance(address, denom);
 
-            // Decrypt available balance if we have state
             if (confBal.available && state?.seed) {
               const keyResult = await cryptoService.deriveKey(state.seed, state.counter);
               const skHex: string = keyResult.secretKeyHex;
@@ -69,14 +79,12 @@ export function Dashboard({ address, syncWarning }: DashboardProps) {
                 const decrypted = await cryptoService.decrypt(skHex, confBal.available);
                 availAmount = String(decrypted.amount ?? decrypted);
               } catch {
-                // Decryption may fail if BSGS table not ready or balance is 0
                 availAmount = state.balances[denom]?.availableAmount ?? '0';
               }
             } else if (state?.balances[denom]) {
               availAmount = state.balances[denom].availableAmount;
             }
 
-            // Decrypt pending
             if (confBal.pending && state?.seed) {
               const keyResult = await cryptoService.deriveKey(state.seed, state.counter);
               const skHex: string = keyResult.secretKeyHex;
@@ -88,7 +96,6 @@ export function Dashboard({ address, syncWarning }: DashboardProps) {
               }
             }
           } catch {
-            // Chain query may fail if no confidential account
             if (state?.balances[denom]) {
               availAmount = state.balances[denom].availableAmount;
             }
@@ -126,26 +133,45 @@ export function Dashboard({ address, syncWarning }: DashboardProps) {
     return () => { cancelled = true; };
   }, [address, refreshKey]);
 
-  function openModal(modal: Modal, denom: string) {
-    setActiveDenom(denom);
-    setActiveModal(modal);
+  async function copyAddress() {
+    await navigator.clipboard.writeText(address);
+    toast('Address copied');
   }
 
-  function closeAndRefresh() {
-    setActiveModal(null);
-    refresh();
+  // Strip loading from denomData for child props
+  const denomBalances: Record<string, { publicBalance: string | null; availableAmount: string | null; pendingAmount: string | null }> = {};
+  for (const [denom, d] of Object.entries(denomData)) {
+    denomBalances[denom] = { publicBalance: d.publicBalance, availableAmount: d.availableAmount, pendingAmount: d.pendingAmount };
   }
 
-  const data = denomData[activeDenom] ?? { publicBalance: null, availableAmount: null, pendingAmount: null, loading: true };
+  const isLoading = Object.values(denomData).some((d) => d.loading);
+
+  const panelProps = {
+    address,
+    denoms: DENOMS,
+    selectedDenom,
+    onDenomChange: setSelectedDenom,
+    denomData: denomBalances,
+    onSuccess: refresh,
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50">
       {/* Header */}
       <header className="border-b border-zinc-800 px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <h1 className="text-lg font-bold">Confidential Wallet</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-bold">Confidential Wallet</h1>
+            {isLoading && <Loader2 className="h-4 w-4 text-zinc-500 animate-spin" />}
+          </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs font-mono text-zinc-400">{truncateAddress(address)}</span>
+            <button
+              onClick={copyAddress}
+              className="flex items-center gap-1.5 rounded-md bg-zinc-800 border border-zinc-700 px-2.5 py-1 hover:bg-zinc-700/50 transition-colors"
+            >
+              <span className="text-xs font-mono text-zinc-400">{truncateAddress(address)}</span>
+              <Copy className="h-3 w-3 text-zinc-500" />
+            </button>
             <span className="inline-flex items-center rounded-full bg-green-900/30 px-2 py-0.5 text-xs text-green-400">
               Connected
             </span>
@@ -154,99 +180,44 @@ export function Dashboard({ address, syncWarning }: DashboardProps) {
       </header>
 
       {/* Main content */}
-      <main className="max-w-2xl mx-auto p-6 space-y-6">
+      <main className="max-w-2xl mx-auto p-6 space-y-4">
         {syncWarning && (
           <div className="rounded-lg bg-yellow-900/20 border border-yellow-800 p-3">
             <p className="text-sm text-yellow-400">{syncWarning}</p>
           </div>
         )}
-        {/* Balance cards */}
-        {DENOMS.map((denom) => {
-          const d = denomData[denom] ?? { publicBalance: null, availableAmount: null, pendingAmount: null, loading: true };
-          return (
-            <BalanceCard
-              key={denom}
-              denom={denom}
-              publicBalance={d.publicBalance}
-              availableAmount={d.availableAmount}
-              pendingAmount={d.pendingAmount}
-              loading={d.loading}
-              onApplyPending={() => openModal('applyPending', denom)}
-            />
-          );
-        })}
 
-        {/* Action buttons */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <button
-            onClick={() => openModal('shield', activeDenom)}
-            className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-500"
-          >
-            Shield
-          </button>
-          <button
-            onClick={() => openModal('send', activeDenom)}
-            className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-500"
-          >
-            Send
-          </button>
-          <button
-            onClick={() => openModal('unshield', activeDenom)}
-            className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-500"
-          >
-            Unshield
-          </button>
-          <button
-            onClick={refresh}
-            className="rounded-lg bg-zinc-800 border border-zinc-700 px-4 py-3 text-sm font-medium text-zinc-300 hover:bg-zinc-700"
-          >
-            Refresh
-          </button>
+        {/* Tab bar */}
+        <div className="flex gap-1 rounded-xl bg-zinc-900/80 border border-zinc-800/50 p-1.5 backdrop-blur-sm overflow-x-auto">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-2.5 text-sm font-medium whitespace-nowrap transition-all duration-200 ${
+                  isActive
+                    ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-sm'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-700/50 border border-transparent'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="hidden sm:inline">{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Refresh hint */}
-        <p className="text-xs text-zinc-600 text-center">
-          Balances refresh automatically after transactions. Click Refresh to update manually.
-        </p>
+        {/* Tab content */}
+        <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
+          {activeTab === 'shield' && <ShieldPanel {...panelProps} />}
+          {activeTab === 'send' && <SendPanel {...panelProps} />}
+          {activeTab === 'unshield' && <UnshieldPanel {...panelProps} />}
+          {activeTab === 'pending' && <PendingPanel {...panelProps} />}
+          {activeTab === 'history' && <HistoryPanel address={address} />}
+        </div>
       </main>
-
-      {/* Modals */}
-      {activeModal === 'shield' && (
-        <ShieldModal
-          address={address}
-          denom={activeDenom}
-          publicBalance={data.publicBalance ?? '0'}
-          onClose={() => setActiveModal(null)}
-          onSuccess={closeAndRefresh}
-        />
-      )}
-      {activeModal === 'send' && (
-        <SendModal
-          address={address}
-          denom={activeDenom}
-          availableAmount={data.availableAmount ?? '0'}
-          onClose={() => setActiveModal(null)}
-          onSuccess={closeAndRefresh}
-        />
-      )}
-      {activeModal === 'unshield' && (
-        <UnshieldModal
-          address={address}
-          denom={activeDenom}
-          availableAmount={data.availableAmount ?? '0'}
-          onClose={() => setActiveModal(null)}
-          onSuccess={closeAndRefresh}
-        />
-      )}
-      {activeModal === 'applyPending' && (
-        <ApplyPendingModal
-          address={address}
-          denom={activeDenom}
-          pendingAmount={data.pendingAmount ?? '0'}
-          onClose={() => setActiveModal(null)}
-          onSuccess={closeAndRefresh}
-        />
-      )}
     </div>
   );
 }
