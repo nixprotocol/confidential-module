@@ -7,8 +7,9 @@ import { saveState, loadState } from '@/lib/state';
 import { bytesToHex, hexToBytes } from '@/lib/utils';
 import { encodeMsgRegisterKey } from '@/lib/messages';
 import { broadcastMsg } from '@/lib/tx';
-import { TxStatus, type TxStatusState } from './TxStatus';
 import { Loader2 } from 'lucide-react';
+
+type TxStatusState = 'idle' | 'proving' | 'signing' | 'broadcasting' | 'confirmed' | 'failed';
 
 interface SetupWizardProps {
   address: string;
@@ -53,7 +54,16 @@ export function SetupWizard({ address, onComplete }: SetupWizardProps) {
         return;
       }
 
-      // Step 3: Register (or re-register if key mismatch) on chain
+      if (accountInfo.registered && accountInfo.pubkey !== pubkeyHex) {
+        // Key mismatch — registered with a different key, can't re-register
+        throw new Error(
+          'This account is already registered with a different ElGamal key. ' +
+          'This can happen if the wallet was set up on a different browser with a different Keplr account. ' +
+          'Key rotation is not yet supported.'
+        );
+      }
+
+      // Step 3: Register key on chain (first-time only)
       setStep('registering');
       setTxStatus('signing');
 
@@ -68,7 +78,7 @@ export function SetupWizard({ address, onComplete }: SetupWizardProps) {
       // Update state counter
       const updatedState = loadState(address);
       if (updatedState) {
-        updatedState.counter = counter;
+        updatedState.counter = 0;
         saveState(updatedState);
       }
 
@@ -124,7 +134,17 @@ export function SetupWizard({ address, onComplete }: SetupWizardProps) {
         {step === 'registering' && (
           <div className="space-y-3">
             <p className="text-sm text-zinc-300 text-center">Registering your confidential key on chain...</p>
-            <TxStatus status={txStatus} txHash={txHash} error={error} />
+            <div className="rounded-lg bg-zinc-800/50 p-4 text-sm text-center">
+              {txStatus === 'signing' && <p className="text-blue-400">Sign with Keplr...</p>}
+              {txStatus === 'broadcasting' && (
+                <div className="flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
+                  <span className="text-blue-400">Broadcasting...</span>
+                </div>
+              )}
+              {txStatus === 'confirmed' && <p className="text-green-400">Confirmed</p>}
+              {txStatus === 'failed' && <p className="text-red-400">{error}</p>}
+            </div>
           </div>
         )}
 
