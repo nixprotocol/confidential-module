@@ -7,7 +7,6 @@ import { Dashboard } from './components/Dashboard';
 import { loadState, saveState } from './lib/state';
 import { chainClient } from './lib/chain';
 import { cryptoService } from './lib/crypto';
-import { syncFromChain } from './lib/syncFromChain';
 
 export default function App() {
   const [address, setAddress] = useState<string | null>(null);
@@ -45,34 +44,10 @@ export default function App() {
         return;
       }
 
-      // If balances are empty, try syncing from chain events
-      const hasDenomState = Object.keys(state.balances).some(
-        (d) => state.balances[d]?.availableRandomness
-      );
-      if (!hasDenomState && state.seed) {
-        try {
-          const keyResult = await cryptoService.deriveKey(state.seed, state.counter);
-          const tmClient = chainClient.getTmClient();
-          if (tmClient) {
-            const recovered = await syncFromChain(tmClient, address!, keyResult.secretKeyHex, ['anix', 'stake']);
-            if (Object.keys(recovered).length > 0) {
-              for (const [denom, denomState] of Object.entries(recovered)) {
-                state.balances[denom] = {
-                  availableAmount: denomState.availableAmount,
-                  availableRandomness: denomState.availableRandomness,
-                  pendingApplied: true,
-                };
-                if (denomState.stale) {
-                  setSyncWarning(`Recovered state for ${denom} may be stale — some transactions were found without memos.`);
-                }
-              }
-              saveState(state);
-            }
-          }
-        } catch (e) {
-          console.warn('Sync from chain failed:', e);
-        }
-      }
+      // NOTE: Auto state recovery is disabled — the recoverState function has
+      // a known issue with abciQuery height parameter over WebSocket.
+      // Use the "Repair State" button in Dashboard manually if needed.
+      // TODO: Fix recoverState to use HTTP RPC directly instead of CosmJS abciQuery.
 
       setSetup(true);
     }

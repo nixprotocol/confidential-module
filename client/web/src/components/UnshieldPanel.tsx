@@ -14,6 +14,7 @@ interface DenomBalances {
   publicBalance: string | null;
   availableAmount: string | null;
   pendingAmount: string | null;
+  synced: boolean;
 }
 
 interface UnshieldPanelProps {
@@ -29,7 +30,9 @@ export function UnshieldPanel({ address, denoms, selectedDenom, onDenomChange, d
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const data = denomData[selectedDenom] ?? { publicBalance: null, availableAmount: null, pendingAmount: null };
+  const data = denomData[selectedDenom] ?? { publicBalance: null, availableAmount: null, pendingAmount: null, synced: true };
+  const isDesynced = data.synced === false;
+  const hasLocalState = !!loadState(address)?.balances[selectedDenom]?.availableRandomness;
 
   async function handleUnshield() {
     if (!amount || Number(amount) <= 0) return;
@@ -49,6 +52,20 @@ export function UnshieldPanel({ address, denoms, selectedDenom, onDenomChange, d
       const pkHex: string = keyResult.pubkeyHex;
 
       const onChainBalance = await chainClient.queryConfidentialBalance(address, selectedDenom);
+
+      // Verify local state matches on-chain balance (detect desync)
+      if (onChainBalance.available) {
+        try {
+          const decrypted = await cryptoService.decrypt(skHex, onChainBalance.available);
+          const chainAmount = Number(decrypted.amount ?? decrypted);
+          const localAmount = Number(denomState.availableAmount);
+          if (chainAmount !== localAmount) {
+            throw new Error(`Balance state out of sync (chain: ${chainAmount}, local: ${localAmount}). Try shielding a small amount first to resync, or clear wallet state.`);
+          }
+        } catch (e: any) {
+          if (e.message?.includes('out of sync')) throw e;
+        }
+      }
 
       const unshieldResult = await cryptoService.unshield({
         skHex,
@@ -125,9 +142,21 @@ export function UnshieldPanel({ address, denoms, selectedDenom, onDenomChange, d
         </p>
       </div>
 
+      {!hasLocalState && (
+        <p className="text-xs text-yellow-400 rounded-lg bg-yellow-950/30 border border-yellow-900/50 px-3 py-2">
+          No local balance state. Shield tokens first to initialize your wallet state.
+        </p>
+      )}
+
+      {hasLocalState && isDesynced && (
+        <p className="text-xs text-red-400 rounded-lg bg-red-950/30 border border-red-900/50 px-3 py-2">
+          Balance state out of sync with chain. Shield a small amount to resync before unshielding.
+        </p>
+      )}
+
       <button
         onClick={handleUnshield}
-        disabled={busy || !amount || Number(amount) <= 0}
+        disabled={busy || !amount || Number(amount) <= 0 || isDesynced || !hasLocalState}
         className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
       >
         {busy ? 'Processing...' : 'Unshield'}

@@ -4,10 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "npm run wasm:check && vite",
+    "build": "npm run wasm:check && tsc -b && vite build",
     "preview": "vite preview",
-    "wasm": "cd wasm && ./build.sh"
+    "wasm": "cd wasm && ./build.sh",
+    "wasm:check": "node -e \"const fs=require('fs'); const src=fs.statSync('wasm/main.go').mtimeMs; const bin=fs.existsSync('public/crypto.wasm')?fs.statSync('public/crypto.wasm').mtimeMs:0; if(src>bin){console.log('WASM outdated, rebuilding...');process.exit(1);}\" || npm run wasm"
   },
   "dependencies": {
     "@cosmjs/amino": "^0.32.4",

@@ -16,6 +16,7 @@ interface DenomBalances {
   publicBalance: string | null;
   availableAmount: string | null;
   pendingAmount: string | null;
+  synced: boolean;
 }
 
 interface PendingPanelProps {
@@ -31,7 +32,7 @@ export function PendingPanel({ address, denoms, selectedDenom, onDenomChange, de
   const [busy, setBusy] = useState(false);
 
   const data = denomData[selectedDenom] ?? { publicBalance: null, availableAmount: null, pendingAmount: null };
-  const hasPending = data.pendingAmount !== null && data.pendingAmount !== '0';
+  const hasPending = data.pendingAmount !== null && data.pendingAmount !== '0' && !isNaN(Number(data.pendingAmount));
 
   async function handleApply() {
     const toastId = toast.loading('Generating proof...');
@@ -70,7 +71,7 @@ export function PendingPanel({ address, denoms, selectedDenom, onDenomChange, de
       const memoResult = await cryptoService.encryptMemo(pkHex, newR, newAmount);
       const memoBytes = hexToBytes(memoResult.encryptedMemoHex);
 
-      const msg = encodeMsgApplyPending(address, selectedDenom, newAvailBytes, proofBytes);
+      const msg = encodeMsgApplyPending(address, selectedDenom, newAvailBytes, proofBytes, memoBytes);
 
       toast.loading('Broadcasting...', { id: toastId });
       const hash = await broadcastMsg(msg);

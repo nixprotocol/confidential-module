@@ -15,6 +15,7 @@ interface DenomBalances {
   publicBalance: string | null;
   availableAmount: string | null;
   pendingAmount: string | null;
+  synced: boolean;
 }
 
 interface ShieldPanelProps {
