@@ -108,7 +108,7 @@ self.onmessage = async function(e) {
         break;
 
       case 'encryptMemo':
-        result = wasmEncryptMemo(msg.pkHex, msg.randomnessHex, msg.amount);
+        result = wasmEncryptMemo(msg.pkHex, msg.randomnessHex, msg.amount, msg.txAmount || 0);
         break;
 
       case 'decryptMemo':

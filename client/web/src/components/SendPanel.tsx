@@ -117,7 +117,7 @@ export function SendPanel({ address, denoms, selectedDenom, onDenomChange, denom
 
       const newR = sendResult.newAvailRandomnessHex;
       const newAmount = Number(denomState.availableAmount) - Number(amount);
-      const memoResult = await cryptoService.encryptMemo(senderPkHex, newR, newAmount);
+      const memoResult = await cryptoService.encryptMemo(senderPkHex, newR, newAmount, Number(amount));
       const memoBytes = hexToBytes(memoResult.encryptedMemoHex);
 
       const msg = encodeMsgConfidentialSend(

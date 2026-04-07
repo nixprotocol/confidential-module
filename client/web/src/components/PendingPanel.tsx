@@ -68,7 +68,7 @@ export function PendingPanel({ address, denoms, selectedDenom, onDenomChange, de
       const oldAmount = Number(state.balances[selectedDenom]?.availableAmount) || 0;
       const newR = addFieldElements(oldR, applyResult.newRandomnessHex);
       const newAmount = oldAmount + Number(data.pendingAmount);
-      const memoResult = await cryptoService.encryptMemo(pkHex, newR, newAmount);
+      const memoResult = await cryptoService.encryptMemo(pkHex, newR, newAmount, Number(data.pendingAmount));
       const memoBytes = hexToBytes(memoResult.encryptedMemoHex);
 
       const msg = encodeMsgApplyPending(address, selectedDenom, newAvailBytes, proofBytes, memoBytes);

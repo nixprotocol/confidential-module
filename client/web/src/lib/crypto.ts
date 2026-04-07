@@ -55,7 +55,7 @@ export class CryptoService {
   async applyPending(params: any) { return this.call('applyPending', params); }
   async unshield(params: any) { return this.call('unshield', params); }
   async decrypt(skHex: string, ciphertextHex: string) { return this.call('decrypt', { skHex, ciphertextHex }); }
-  async encryptMemo(pkHex: string, randomnessHex: string, amount: number) { return this.call('encryptMemo', { pkHex, randomnessHex, amount }); }
+  async encryptMemo(pkHex: string, randomnessHex: string, amount: number, txAmount: number) { return this.call('encryptMemo', { pkHex, randomnessHex, amount, txAmount }); }
   async decryptMemo(skHex: string, encryptedMemoHex: string) { return this.call('decryptMemo', { skHex, encryptedMemoHex }); }
 }
 

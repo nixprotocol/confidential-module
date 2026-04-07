@@ -608,13 +608,21 @@ func wasmDecryptBalance(_ js.Value, args []js.Value) interface{} {
 }
 
 // ---------------------------------------------------------------------------
-// 8. wasmEncryptMemo(pkHex, randomnessHex, amount)
+// 8. wasmEncryptMemo(pkHex, randomnessHex, amount, txAmount)
 //    -> {encryptedMemoHex}
+//
+// Payload layout (48 bytes):
+//   [0:32]  randomness (post-tx available randomness)
+//   [32:40] amount     (post-tx available balance, big-endian uint64)
+//   [40:48] txAmount   (this transaction's amount, big-endian uint64)
+//
+// Legacy memos written before this field was added are 40 bytes; the
+// decoder below handles both lengths for backward compatibility.
 // ---------------------------------------------------------------------------
 
 func wasmEncryptMemo(_ js.Value, args []js.Value) interface{} {
-	if len(args) < 3 {
-		return jsError("wasmEncryptMemo: expected 3 args (pkHex, randomnessHex, amount)")
+	if len(args) < 4 {
+		return jsError("wasmEncryptMemo: expected 4 args (pkHex, randomnessHex, amount, txAmount)")
 	}
 
 	pk, err := parsePublicKey(args[0].String())
@@ -628,8 +636,9 @@ func wasmEncryptMemo(_ js.Value, args []js.Value) interface{} {
 	}
 
 	amount := uint64(args[2].Int())
+	txAmount := uint64(args[3].Int())
 
-	payload := make([]byte, 40)
+	payload := make([]byte, 48)
 	if len(rBytes) == 32 {
 		copy(payload[0:32], rBytes)
 	} else if len(rBytes) < 32 {
@@ -638,6 +647,7 @@ func wasmEncryptMemo(_ js.Value, args []js.Value) interface{} {
 		copy(payload[0:32], rBytes[:32])
 	}
 	binary.BigEndian.PutUint64(payload[32:40], amount)
+	binary.BigEndian.PutUint64(payload[40:48], txAmount)
 
 	encrypted, err := elgamal.EncryptMemo(payload, &pk)
 	if err != nil {
@@ -651,7 +661,10 @@ func wasmEncryptMemo(_ js.Value, args []js.Value) interface{} {
 
 // ---------------------------------------------------------------------------
 // 9. wasmDecryptMemo(skHex, encryptedMemoHex)
-//    -> {randomnessHex, amount}
+//    -> {randomnessHex, amount, txAmount}
+//
+// Accepts both legacy 40-byte memos and current 48-byte memos. For legacy
+// memos, txAmount is reported as 0 (unknown).
 // ---------------------------------------------------------------------------
 
 func wasmDecryptMemo(_ js.Value, args []js.Value) interface{} {
@@ -675,15 +688,20 @@ func wasmDecryptMemo(_ js.Value, args []js.Value) interface{} {
 	}
 
 	if len(payload) < 40 {
-		return jsError(fmt.Sprintf("decrypted memo too short: %d bytes, expected 40", len(payload)))
+		return jsError(fmt.Sprintf("decrypted memo too short: %d bytes, expected at least 40", len(payload)))
 	}
 
 	randomnessHex := hex.EncodeToString(payload[0:32])
 	amount := binary.BigEndian.Uint64(payload[32:40])
+	var txAmount uint64
+	if len(payload) >= 48 {
+		txAmount = binary.BigEndian.Uint64(payload[40:48])
+	}
 
 	return jsResult(map[string]interface{}{
 		"randomnessHex": randomnessHex,
 		"amount":        amount,
+		"txAmount":      txAmount,
 	})
 }
 

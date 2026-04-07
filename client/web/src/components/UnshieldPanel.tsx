@@ -86,7 +86,7 @@ export function UnshieldPanel({ address, denoms, selectedDenom, onDenomChange, d
 
       const newR = unshieldResult.newAvailRandomnessHex;
       const newAmount = Number(denomState.availableAmount) - Number(amount);
-      const memoResult = await cryptoService.encryptMemo(pkHex, newR, newAmount);
+      const memoResult = await cryptoService.encryptMemo(pkHex, newR, newAmount, Number(amount));
       const memoBytes = hexToBytes(memoResult.encryptedMemoHex);
 
       const msg = encodeMsgUnshield(address, selectedDenom, Number(amount), ciphertextBytes, rangeProofBytes, decryptionProofBytes, memoBytes);

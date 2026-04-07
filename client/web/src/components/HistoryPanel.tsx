@@ -1,6 +1,8 @@
 // src/components/HistoryPanel.tsx
 import { useState, useEffect } from 'react';
 import { chainClient } from '@/lib/chain';
+import { cryptoService } from '@/lib/crypto';
+import { loadState } from '@/lib/state';
 import { toHex } from '@cosmjs/encoding';
 import { Loader2, Shield, ArrowUpRight, ArrowDownLeft, Clock } from 'lucide-react';
 
@@ -44,6 +46,19 @@ export function HistoryPanel({ address }: HistoryPanelProps) {
         return;
       }
 
+      // Derive the wallet's secret key once so we can decrypt memos for
+      // confidential_send / apply_pending events that have no plaintext amount.
+      let skHex: string | null = null;
+      const state = loadState(address);
+      if (state?.seed) {
+        try {
+          const keyResult = await cryptoService.deriveKey(state.seed, state.counter);
+          skHex = keyResult.secretKeyHex;
+        } catch (e) {
+          console.warn('Failed to derive wallet key for history decryption:', e);
+        }
+      }
+
       const allEvents: TxEvent[] = [];
 
       for (const eventType of EVENT_TYPES) {
@@ -67,10 +82,25 @@ export function HistoryPanel({ address }: HistoryPanelProps) {
                 attrs[attr.key] = attr.value;
               }
 
+              // Plaintext amount is only present on shield/unshield events.
+              // For confidential_send / apply_pending, decrypt the memo to
+              // recover the txAmount the sender stored at construction time.
+              let amount = attrs['amount'] || '?';
+              if (amount === '?' && skHex && attrs['encrypted_memo']) {
+                try {
+                  const decrypted = await cryptoService.decryptMemo(skHex, attrs['encrypted_memo']);
+                  if (decrypted?.txAmount != null && Number(decrypted.txAmount) > 0) {
+                    amount = String(decrypted.txAmount);
+                  }
+                } catch (e) {
+                  // Legacy memo, foreign key, or decode failure — leave as '?'.
+                }
+              }
+
               allEvents.push({
                 type: eventType,
                 denom: attrs['denom'] || '?',
-                amount: attrs['amount'] || '?',
+                amount,
                 txHash,
                 height: tx.height,
               });
