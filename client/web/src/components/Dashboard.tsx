@@ -83,10 +83,13 @@ export function Dashboard({ address, syncWarning }: DashboardProps) {
               try {
                 const decrypted = await cryptoService.decrypt(skHex, confBal.available);
                 availAmount = String(decrypted.amount ?? decrypted);
-                // Compare decrypted on-chain amount with local state
-                const localAmount = state.balances[denom]?.availableAmount;
-                if (localAmount != null && availAmount !== localAmount) {
-                  console.warn(`[${denom}] State desync: chain=${availAmount}, local=${localAmount}`);
+                // Compare decrypted on-chain amount with local state.
+                // Desync if: amounts differ, OR chain has balance but local randomness is missing.
+                const localBal = state.balances[denom];
+                const chainHasBalance = Number(availAmount) > 0;
+                const localMissing = !localBal?.availableRandomness;
+                if (chainHasBalance && (localMissing || (localBal?.availableAmount != null && availAmount !== localBal.availableAmount))) {
+                  console.warn(`[${denom}] State desync: chain=${availAmount}, local=${localBal?.availableAmount ?? 'missing'}, randomness=${localMissing ? 'missing' : 'present'}`);
                   synced = false;
                 }
               } catch {

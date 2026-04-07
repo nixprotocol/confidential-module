@@ -31,7 +31,12 @@ export function ShieldPanel({ address, denoms, selectedDenom, onDenomChange, den
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const data = denomData[selectedDenom] ?? { publicBalance: null, availableAmount: null, pendingAmount: null };
+  const data = denomData[selectedDenom] ?? { publicBalance: null, availableAmount: null, pendingAmount: null, synced: true };
+  // If chain already has a confidential balance but local randomness is missing,
+  // shielding would start from ZERO_RANDOMNESS and create a new desync. Block it
+  // and direct the user to Repair State instead.
+  const localR = loadState(address)?.balances[selectedDenom]?.availableRandomness;
+  const blockedByDesync = !localR && Number(data.availableAmount) > 0;
 
   async function handleShield() {
     if (!amount || Number(amount) <= 0) return;
@@ -127,9 +132,15 @@ export function ShieldPanel({ address, denoms, selectedDenom, onDenomChange, den
         </p>
       </div>
 
+      {blockedByDesync && (
+        <p className="text-xs text-yellow-400 rounded-lg bg-yellow-950/30 border border-yellow-900/50 px-3 py-2">
+          Local wallet state missing but chain has a confidential balance. Click 'Repair State' above before shielding — shielding now would create a state desync.
+        </p>
+      )}
+
       <button
         onClick={handleShield}
-        disabled={busy || !amount || Number(amount) <= 0}
+        disabled={busy || !amount || Number(amount) <= 0 || blockedByDesync}
         className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
       >
         {busy ? 'Processing...' : 'Shield'}

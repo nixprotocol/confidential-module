@@ -205,7 +205,9 @@ export function SendPanel({ address, denoms, selectedDenom, onDenomChange, denom
 
       {!hasLocalState && (
         <p className="text-xs text-yellow-400 rounded-lg bg-yellow-950/30 border border-yellow-900/50 px-3 py-2">
-          No local balance state. Shield tokens first to initialize your wallet state.
+          {Number(data.availableAmount) > 0
+            ? "Local wallet state missing. Click 'Repair State' above to recover from chain events."
+            : 'No local balance state. Shield tokens first to initialize your wallet state.'}
         </p>
       )}
 
