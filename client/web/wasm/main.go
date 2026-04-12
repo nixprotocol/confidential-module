@@ -230,14 +230,11 @@ func wasmShield(_ js.Value, args []js.Value) interface{} {
 	if err != nil {
 		return jsError(fmt.Sprintf("encryption failed: %v", err))
 	}
-	ctBytes, err := ct.Marshal()
-	if err != nil {
-		return jsError(fmt.Sprintf("ciphertext marshal failed: %v", err))
-	}
+	ctBytes := ct.Marshal()
 
 	// Generate DLEQ proof with chain context.
 	transcript := buildTranscript(chainId, sender, "", denom)
-	proof, err := elgamal.ProveDLEQ(&sk, &pk, &ct, amount, transcript)
+	proof, err := elgamal.ProveDLEQ(&sk, &pk, &ct, amount, transcript, nil)
 	if err != nil {
 		return jsError(fmt.Sprintf("proof generation failed: %v", err))
 	}
@@ -348,6 +345,7 @@ func wasmSend(_ js.Value, args []js.Value) interface{} {
 		&senderPk, &receiverPk, &auditorPk,
 		&ctSender, &ctReceiver, &ctAuditor,
 		eqTranscript,
+		nil,
 	)
 	if err != nil {
 		return jsError(fmt.Sprintf("equality proof failed: %v", err))
@@ -375,9 +373,9 @@ func wasmSend(_ js.Value, args []js.Value) interface{} {
 		return jsError(fmt.Sprintf("range proof marshal failed: %v", err))
 	}
 
-	ctSenderBytes, _ := ctSender.Marshal()
-	ctReceiverBytes, _ := ctReceiver.Marshal()
-	ctAuditorBytes, _ := ctAuditor.Marshal()
+	ctSenderBytes := ctSender.Marshal()
+	ctReceiverBytes := ctReceiver.Marshal()
+	ctAuditorBytes := ctAuditor.Marshal()
 
 	newAvailRBytes := remainingBlinding.Bytes()
 
@@ -446,15 +444,13 @@ func wasmApplyPending(_ js.Value, args []js.Value) interface{} {
 	if err != nil {
 		return jsError(fmt.Sprintf("encryption failed: %v", err))
 	}
-	newCtBytes, err := newCt.Marshal()
-	if err != nil {
-		return jsError(fmt.Sprintf("ciphertext marshal failed: %v", err))
-	}
+	newCtBytes := newCt.Marshal()
 
 	transcript := buildTranscript(chainId, sender, "", denom)
 	proof, err := elgamal.ProveApplyPending(
 		&sk, &pk, &pendingCt, &newCt,
 		pendingAmount, &rNew, transcript,
+		nil,
 	)
 	if err != nil {
 		return jsError(fmt.Sprintf("proof generation failed: %v", err))
@@ -526,14 +522,11 @@ func wasmUnshield(_ js.Value, args []js.Value) interface{} {
 	if err != nil {
 		return jsError(fmt.Sprintf("encryption failed: %v", err))
 	}
-	ctBytes, err := ct.Marshal()
-	if err != nil {
-		return jsError(fmt.Sprintf("ciphertext marshal failed: %v", err))
-	}
+	ctBytes := ct.Marshal()
 
 	// DLEQ proof.
 	dleqTranscript := buildTranscript(chainId, sender, "", denom)
-	dleqProof, err := elgamal.ProveDLEQ(&sk, &pk, &ct, amount, dleqTranscript)
+	dleqProof, err := elgamal.ProveDLEQ(&sk, &pk, &ct, amount, dleqTranscript, nil)
 	if err != nil {
 		return jsError(fmt.Sprintf("DLEQ proof failed: %v", err))
 	}

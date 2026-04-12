@@ -60,11 +60,10 @@ func shieldAccount(
 
 	ct, _, err := elgamal.EncryptWithRandomness(amount, &pk, &r)
 	require.NoError(t, err)
-	ctBytes, err := ct.Marshal()
-	require.NoError(t, err)
+	ctBytes := ct.Marshal()
 
 	transcript := k.BuildTranscriptForTest(ctx, addr, "", "uatom")
-	proof, err := elgamal.ProveDLEQ(&sk, &pk, &ct, amount, transcript)
+	proof, err := elgamal.ProveDLEQ(&sk, &pk, &ct, amount, transcript, nil)
 	require.NoError(t, err)
 	proofBytes := proof.Marshal()
 
@@ -217,12 +216,11 @@ func TestShield_InvalidProof(t *testing.T) {
 
 	ct, _, err := elgamal.EncryptWithRandomness(1000, &alicePk, &r)
 	require.NoError(t, err)
-	ctBytes, err := ct.Marshal()
-	require.NoError(t, err)
+	ctBytes := ct.Marshal()
 
 	// Prove with wrong amount (500 instead of 1000).
 	transcript := k.BuildTranscriptForTest(ctx, alice, "", "uatom")
-	wrongProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &ct, 500, transcript)
+	wrongProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &ct, 500, transcript, nil)
 	require.NoError(t, err)
 	wrongProofBytes := wrongProof.Marshal()
 
@@ -310,9 +308,9 @@ func TestSend_InvalidEqualityProof(t *testing.T) {
 	auditorCt, _, err := elgamal.EncryptWithRandomness(sendAmount, &auditorPk, &rAuditor)
 	require.NoError(t, err)
 
-	senderCtBytes, _ := senderCt.Marshal()
-	receiverCtBytes, _ := receiverCt.Marshal()
-	auditorCtBytes, _ := auditorCt.Marshal()
+	senderCtBytes := senderCt.Marshal()
+	receiverCtBytes := receiverCt.Marshal()
+	auditorCtBytes := auditorCt.Marshal()
 
 	// Generate a valid equality proof then tamper with it.
 	eqTranscript := k.BuildTranscriptForTest(ctx, alice, bob, "uatom")
@@ -322,6 +320,7 @@ func TestSend_InvalidEqualityProof(t *testing.T) {
 		&alicePk, &bobPk, &auditorPk,
 		&senderCt, &receiverCt, &auditorCt,
 		eqTranscript,
+		nil,
 	)
 	require.NoError(t, err)
 	proofBytes := eqProof.Marshal()
@@ -438,13 +437,12 @@ func TestUnshield_ExceedsBalance(t *testing.T) {
 	_, _ = r.SetRandom()
 	ct, _, err := elgamal.EncryptWithRandomness(500, &alicePk, &r)
 	require.NoError(t, err)
-	ctBytes, err := ct.Marshal()
-	require.NoError(t, err)
+	ctBytes := ct.Marshal()
 
 	// Generate DLEQ proof for amount=500 (this is a valid DLEQ, but the range
 	// proof for remaining balance = -400 cannot be valid).
 	transcript := k.BuildTranscriptForTest(ctx, alice, "", "uatom")
-	dleqProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &ct, 500, transcript)
+	dleqProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &ct, 500, transcript, nil)
 	require.NoError(t, err)
 	dleqBytes := dleqProof.Marshal()
 
@@ -536,7 +534,7 @@ func TestSetAuditorKey_InvalidPubkeyIdentity(t *testing.T) {
 		Pubkey:    make([]byte, 64),
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrAuditorKeyNotSet)
+	require.ErrorIs(t, err, types.ErrInvalidPubkey)
 }
 
 // ---------------------------------------------------------------------------
@@ -644,12 +642,13 @@ func TestSend_WrongAuditorKey(t *testing.T) {
 		&alicePk, &bobPk, &wrongAuditorPk,
 		&sCt, &rCt, &aCt,
 		eqT,
+		nil,
 	)
 	require.NoError(t, err)
 
-	sB, _ := sCt.Marshal()
-	rB, _ := rCt.Marshal()
-	aB, _ := aCt.Marshal()
+	sB := sCt.Marshal()
+	rB := rCt.Marshal()
+	aB := aCt.Marshal()
 
 	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
 		Sender:         alice,

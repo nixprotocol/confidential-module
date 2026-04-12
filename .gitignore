@@ -1,0 +1,6 @@
+# Protoc artifact: generated .pb.go files placed at the full module path
+# instead of the local types/ directory. These are duplicates of types/*.pb.go.
+github.com/
+
+# Test artifacts
+coverage.out

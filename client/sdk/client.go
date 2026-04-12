@@ -72,13 +72,10 @@ func (c *Client) Shield(sender, denom string, amount uint64, currentAvailBalance
 		return nil, fmt.Errorf("encrypt: %w", err)
 	}
 
-	ctBytes, err := ct.Marshal()
-	if err != nil {
-		return nil, fmt.Errorf("marshal ciphertext: %w", err)
-	}
+	ctBytes := ct.Marshal()
 
 	transcript := c.buildTranscript(sender, "", denom)
-	proof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, transcript)
+	proof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, transcript, nil)
 	if err != nil {
 		return nil, fmt.Errorf("prove DLEQ: %w", err)
 	}
@@ -163,6 +160,7 @@ func (c *Client) Send(
 		&c.pk, receiverPk, auditorPk,
 		&senderCt, &receiverCt, &auditorCt,
 		eqTranscript,
+		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("prove equality: %w", err)
@@ -189,9 +187,9 @@ func (c *Client) Send(
 		return nil, fmt.Errorf("marshal range proof: %w", err)
 	}
 
-	senderCtBytes, _ := senderCt.Marshal()
-	receiverCtBytes, _ := receiverCt.Marshal()
-	auditorCtBytes, _ := auditorCt.Marshal()
+	senderCtBytes := senderCt.Marshal()
+	receiverCtBytes := receiverCt.Marshal()
+	auditorCtBytes := auditorCt.Marshal()
 
 	return &SendResult{
 		SenderUpdate:   senderCtBytes,
@@ -245,14 +243,11 @@ func (c *Client) ApplyPending(
 		return nil, fmt.Errorf("re-encrypt: %w", err)
 	}
 
-	newCtBytes, err := newCt.Marshal()
-	if err != nil {
-		return nil, fmt.Errorf("marshal new ct: %w", err)
-	}
+	newCtBytes := newCt.Marshal()
 
 	// ApplyPending proof.
 	transcript := c.buildTranscript(sender, "", denom)
-	proof, err := elgamal.ProveApplyPending(&c.sk, &c.pk, &pendCt, &newCt, pendingAmount, &rNew, transcript)
+	proof, err := elgamal.ProveApplyPending(&c.sk, &c.pk, &pendCt, &newCt, pendingAmount, &rNew, transcript, nil)
 	if err != nil {
 		return nil, fmt.Errorf("prove apply pending: %w", err)
 	}
@@ -300,14 +295,11 @@ func (c *Client) Unshield(
 		return nil, fmt.Errorf("encrypt: %w", err)
 	}
 
-	ctBytes, err := ct.Marshal()
-	if err != nil {
-		return nil, fmt.Errorf("marshal ciphertext: %w", err)
-	}
+	ctBytes := ct.Marshal()
 
 	// DLEQ proof: ciphertext encrypts the claimed amount.
 	dleqTranscript := c.buildTranscript(sender, "", denom)
-	dleqProof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, dleqTranscript)
+	dleqProof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, dleqTranscript, nil)
 	if err != nil {
 		return nil, fmt.Errorf("prove DLEQ: %w", err)
 	}

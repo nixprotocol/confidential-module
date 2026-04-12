@@ -215,7 +215,7 @@ func TestClient_FullFlow(t *testing.T) {
 	var senderCt elgamal.Ciphertext
 	require.NoError(t, senderCt.Unmarshal(sendResult.SenderUpdate))
 	newAvailCt := elgamal.Sub(&shieldCt, &senderCt)
-	newAvailBytes, _ := newAvailCt.Marshal()
+	newAvailBytes := newAvailCt.Marshal()
 
 	unshieldResult, err := alice.Unshield(
 		aliceSender, "uatom", 200,
@@ -260,8 +260,7 @@ func TestClient_ApplyPending(t *testing.T) {
 	rIncoming.SetUint64(777)
 	pendingCt, _, err := elgamal.EncryptWithRandomness(300, &alicePk, &rIncoming)
 	require.NoError(t, err)
-	pendingBytes, err := pendingCt.Marshal()
-	require.NoError(t, err)
+	pendingBytes := pendingCt.Marshal()
 
 	// ApplyPending: Alice decrypts pending (300) and re-encrypts with known randomness.
 	table := elgamal.NewDecryptionTable(16)

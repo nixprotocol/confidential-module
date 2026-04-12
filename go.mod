@@ -168,6 +168,6 @@ replace (
 	github.com/bytedance/sonic => github.com/bytedance/sonic v1.15.0
 
 	// Module path differs from repo name (bulletproofs-bn25 vs bulletproofs-bn254)
-	github.com/nixprotocol/bulletproofs-bn254 => github.com/nixprotocol/bulletproofs-bn25 v0.0.0-20260330215430-dc32e3eea31a
-	github.com/nixprotocol/elgamal-bn254 => github.com/nixprotocol/elgamal-bn254 v0.0.0-20260330213519-ca5a4813298c
+	github.com/nixprotocol/bulletproofs-bn254 => github.com/nixprotocol/bulletproofs-bn25 v0.0.0-20260412114832-9c685aa41241
+	github.com/nixprotocol/elgamal-bn254 => github.com/nixprotocol/elgamal-bn254 v0.0.0-20260412100525-2809245ca8ca
 )

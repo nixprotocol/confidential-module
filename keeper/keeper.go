@@ -101,9 +101,14 @@ func (k Keeper) GetAccountPubkey(ctx context.Context, addr []byte) ([]byte, erro
 }
 
 // HasRegisteredKey returns true if the account has a registered ElGamal public key.
-func (k Keeper) HasRegisteredKey(ctx context.Context, addr []byte) bool {
+// Store errors are propagated to the caller rather than silently treated as
+// "not registered" — the latter could allow key re-registration on store corruption.
+func (k Keeper) HasRegisteredKey(ctx context.Context, addr []byte) (bool, error) {
 	pk, err := k.GetAccountPubkey(ctx, addr)
-	return err == nil && pk != nil
+	if err != nil {
+		return false, err
+	}
+	return pk != nil, nil
 }
 
 // ---------- Available Balance ----------

@@ -303,12 +303,11 @@ func TestFullConfidentialFlow(t *testing.T) {
 
 	shieldCt, _, err := elgamal.EncryptWithRandomness(shieldAmount, &alicePk, &shieldR)
 	require.NoError(t, err)
-	shieldCtBytes, err := shieldCt.Marshal()
-	require.NoError(t, err)
+	shieldCtBytes := shieldCt.Marshal()
 
 	// DLEQ proof for shield.
 	shieldTranscript := k.BuildTranscriptForTest(ctx, alice, "", "uatom")
-	shieldProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &shieldCt, shieldAmount, shieldTranscript)
+	shieldProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &shieldCt, shieldAmount, shieldTranscript, nil)
 	require.NoError(t, err)
 	shieldProofBytes := shieldProof.Marshal()
 
@@ -344,12 +343,9 @@ func TestFullConfidentialFlow(t *testing.T) {
 	auditorCt, _, err := elgamal.EncryptWithRandomness(sendAmount, &auditorPk, &rAuditor)
 	require.NoError(t, err)
 
-	senderCtBytes, err := senderCt.Marshal()
-	require.NoError(t, err)
-	receiverCtBytes, err := receiverCt.Marshal()
-	require.NoError(t, err)
-	auditorCtBytes, err := auditorCt.Marshal()
-	require.NoError(t, err)
+	senderCtBytes := senderCt.Marshal()
+	receiverCtBytes := receiverCt.Marshal()
+	auditorCtBytes := auditorCt.Marshal()
 
 	// Equality proof: all three ciphertexts encrypt the same amount.
 	eqTranscript := k.BuildTranscriptForTest(ctx, alice, bob, "uatom")
@@ -359,6 +355,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 		&alicePk, &bobPk, &auditorPk,
 		&senderCt, &receiverCt, &auditorCt,
 		eqTranscript,
+		nil,
 	)
 	require.NoError(t, err)
 	equalityProofBytes := equalityProof.Marshal()
@@ -374,8 +371,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 	// See TestClientSDK_EndToEnd for a test that works without this workaround.
 	knownAvailCt, _, err := elgamal.EncryptWithRandomness(shieldAmount, &alicePk, &shieldR)
 	require.NoError(t, err)
-	knownAvailCtBytes, err := knownAvailCt.Marshal()
-	require.NoError(t, err)
+	knownAvailCtBytes := knownAvailCt.Marshal()
 	err = k.SetAvailableBalance(ctx, aliceAddr.Bytes(), "uatom", knownAvailCtBytes)
 	require.NoError(t, err)
 
@@ -439,8 +435,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 	require.NoError(t, err)
 	newAvailCt, _, err := elgamal.EncryptWithRandomness(pendingPlaintext, &bobPk, &applyR)
 	require.NoError(t, err)
-	newAvailCtBytes, err := newAvailCt.Marshal()
-	require.NoError(t, err)
+	newAvailCtBytes := newAvailCt.Marshal()
 
 	// Prove ApplyPending: pending and newAvailCt encrypt the same amount.
 	applyTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
@@ -449,6 +444,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 		&bobPendingCt, &newAvailCt,
 		pendingPlaintext, &applyR,
 		applyTranscript,
+		nil,
 	)
 	require.NoError(t, err)
 	applyProofBytes := applyProof.Marshal()
@@ -470,8 +466,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 	// ciphertext so we can produce valid range proofs for unshield.
 	knownBobAvailCt, _, err := elgamal.EncryptWithRandomness(sendAmount, &bobPk, &applyR)
 	require.NoError(t, err)
-	knownBobAvailCtBytes, err := knownBobAvailCt.Marshal()
-	require.NoError(t, err)
+	knownBobAvailCtBytes := knownBobAvailCt.Marshal()
 	err = k.SetAvailableBalance(ctx, bobAddr.Bytes(), "uatom", knownBobAvailCtBytes)
 	require.NoError(t, err)
 
@@ -482,12 +477,11 @@ func TestFullConfidentialFlow(t *testing.T) {
 	require.NoError(t, err)
 	unshieldCt, _, err := elgamal.EncryptWithRandomness(unshieldAmount, &bobPk, &unshieldR)
 	require.NoError(t, err)
-	unshieldCtBytes, err := unshieldCt.Marshal()
-	require.NoError(t, err)
+	unshieldCtBytes := unshieldCt.Marshal()
 
 	// DLEQ proof: proves the unshield ciphertext encrypts the claimed amount.
 	unshieldTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
-	unshieldDLEQ, err := elgamal.ProveDLEQ(&bobSk, &bobPk, &unshieldCt, unshieldAmount, unshieldTranscript)
+	unshieldDLEQ, err := elgamal.ProveDLEQ(&bobSk, &bobPk, &unshieldCt, unshieldAmount, unshieldTranscript, nil)
 	require.NoError(t, err)
 	unshieldDLEQBytes := unshieldDLEQ.Marshal()
 
@@ -590,10 +584,9 @@ func TestEncryptedMemoOnAllOperations(t *testing.T) {
 	require.NoError(t, err)
 	shieldCt, _, err := elgamal.EncryptWithRandomness(shieldAmount, &alicePk, &shieldR)
 	require.NoError(t, err)
-	shieldCtBytes, err := shieldCt.Marshal()
-	require.NoError(t, err)
+	shieldCtBytes := shieldCt.Marshal()
 	shieldTranscript := k.BuildTranscriptForTest(ctx, alice, "", "uatom")
-	shieldProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &shieldCt, shieldAmount, shieldTranscript)
+	shieldProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &shieldCt, shieldAmount, shieldTranscript, nil)
 	require.NoError(t, err)
 
 	_, err = msgServer.Shield(ctx, &types.MsgShield{
@@ -634,20 +627,21 @@ func TestEncryptedMemoOnAllOperations(t *testing.T) {
 	senderCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &alicePk, &rSender)
 	receiverCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &bobPk, &rReceiver)
 	auditorCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &auditorPk, &rAuditor)
-	senderCtBytes, _ := senderCt.Marshal()
-	receiverCtBytes, _ := receiverCt.Marshal()
-	auditorCtBytes, _ := auditorCt.Marshal()
+	senderCtBytes := senderCt.Marshal()
+	receiverCtBytes := receiverCt.Marshal()
+	auditorCtBytes := auditorCt.Marshal()
 
 	eqTranscript := k.BuildTranscriptForTest(ctx, alice, bob, "uatom")
 	equalityProof, _ := elgamal.ProveEquality(
 		sendAmount, &rSender, &rReceiver, &rAuditor,
 		&alicePk, &bobPk, &auditorPk,
 		&senderCt, &receiverCt, &auditorCt, eqTranscript,
+		nil,
 	)
 
 	// Overwrite Alice's available balance with known randomness for range proof
 	knownAvailCt, _, _ := elgamal.EncryptWithRandomness(shieldAmount, &alicePk, &shieldR)
-	knownAvailCtBytes, _ := knownAvailCt.Marshal()
+	knownAvailCtBytes := knownAvailCt.Marshal()
 	_ = k.SetAvailableBalance(ctx, aliceAddr.Bytes(), "uatom", knownAvailCtBytes)
 
 	newBalAmount := shieldAmount - sendAmount
@@ -686,10 +680,11 @@ func TestEncryptedMemoOnAllOperations(t *testing.T) {
 	var applyR fr.Element
 	_, _ = applyR.SetRandom()
 	newAvailCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &bobPk, &applyR)
-	newAvailCtBytes, _ := newAvailCt.Marshal()
+	newAvailCtBytes := newAvailCt.Marshal()
 	applyTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
 	applyProof, _ := elgamal.ProveApplyPending(
 		&bobSk, &bobPk, &bobPendingCt, &newAvailCt, sendAmount, &applyR, applyTranscript,
+		nil,
 	)
 
 	_, err = msgServer.ApplyPending(ctx, &types.MsgApplyPending{
@@ -721,15 +716,15 @@ func TestEncryptedMemoOnAllOperations(t *testing.T) {
 	// =========================================================================
 	t.Log("Test 4: Unshield with encrypted_memo")
 	knownBobAvailCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &bobPk, &applyR)
-	knownBobAvailCtBytes, _ := knownBobAvailCt.Marshal()
+	knownBobAvailCtBytes := knownBobAvailCt.Marshal()
 	_ = k.SetAvailableBalance(ctx, bobAddr.Bytes(), "uatom", knownBobAvailCtBytes)
 
 	var unshieldR fr.Element
 	_, _ = unshieldR.SetRandom()
 	unshieldCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &bobPk, &unshieldR)
-	unshieldCtBytes, _ := unshieldCt.Marshal()
+	unshieldCtBytes := unshieldCt.Marshal()
 	unshieldTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
-	unshieldDLEQ, _ := elgamal.ProveDLEQ(&bobSk, &bobPk, &unshieldCt, sendAmount, unshieldTranscript)
+	unshieldDLEQ, _ := elgamal.ProveDLEQ(&bobSk, &bobPk, &unshieldCt, sendAmount, unshieldTranscript, nil)
 
 	var remainR fr.Element
 	remainR.Sub(&applyR, &unshieldR)
@@ -825,9 +820,9 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	require.NoError(t, err)
 	shieldCt, _, err := elgamal.EncryptWithRandomness(shieldAmount, &alicePk, &shieldR)
 	require.NoError(t, err)
-	shieldCtBytes, _ := shieldCt.Marshal()
+	shieldCtBytes := shieldCt.Marshal()
 	shieldTranscript := k.BuildTranscriptForTest(ctx, alice, "", "uatom")
-	shieldProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &shieldCt, shieldAmount, shieldTranscript)
+	shieldProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &shieldCt, shieldAmount, shieldTranscript, nil)
 	require.NoError(t, err)
 
 	_, err = msgServer.Shield(ctx, &types.MsgShield{
@@ -852,15 +847,16 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	senderCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &alicePk, &rSender)
 	receiverCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &bobPk, &rReceiver)
 	auditorCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &auditorPk, &rAuditor)
-	senderCtBytes, _ := senderCt.Marshal()
-	receiverCtBytes, _ := receiverCt.Marshal()
-	auditorCtBytes, _ := auditorCt.Marshal()
+	senderCtBytes := senderCt.Marshal()
+	receiverCtBytes := receiverCt.Marshal()
+	auditorCtBytes := auditorCt.Marshal()
 
 	eqTranscript := k.BuildTranscriptForTest(ctx, alice, bob, "uatom")
 	equalityProof, _ := elgamal.ProveEquality(
 		sendAmount, &rSender, &rReceiver, &rAuditor,
 		&alicePk, &bobPk, &auditorPk,
 		&senderCt, &receiverCt, &auditorCt, eqTranscript,
+		nil,
 	)
 
 	remainAmount := shieldAmount - sendAmount
@@ -900,10 +896,11 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	var applyR fr.Element
 	_, _ = applyR.SetRandom()
 	newAvailCt, _, _ := elgamal.EncryptWithRandomness(sendAmount, &bobPk, &applyR)
-	newAvailCtBytes, _ := newAvailCt.Marshal()
+	newAvailCtBytes := newAvailCt.Marshal()
 	applyTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
 	applyProof, _ := elgamal.ProveApplyPending(
 		&bobSk, &bobPk, &bobPendingCt, &newAvailCt, sendAmount, &applyR, applyTranscript,
+		nil,
 	)
 
 	_, err = msgServer.ApplyPending(ctx, &types.MsgApplyPending{
@@ -922,9 +919,9 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	var unshieldR fr.Element
 	_, _ = unshieldR.SetRandom()
 	unshieldCt, _, _ := elgamal.EncryptWithRandomness(unshieldAmount, &bobPk, &unshieldR)
-	unshieldCtBytes, _ := unshieldCt.Marshal()
+	unshieldCtBytes := unshieldCt.Marshal()
 	unshieldTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
-	unshieldDLEQ, _ := elgamal.ProveDLEQ(&bobSk, &bobPk, &unshieldCt, unshieldAmount, unshieldTranscript)
+	unshieldDLEQ, _ := elgamal.ProveDLEQ(&bobSk, &bobPk, &unshieldCt, unshieldAmount, unshieldTranscript, nil)
 
 	bobRemain := sendAmount - unshieldAmount
 	var bobRemainR fr.Element
@@ -1149,7 +1146,9 @@ func clientSDKDeriveR(sk *fr.Element, chainID, denom string, currentBalance []by
 	h := hkdfNew(skBytes[:], currentBalance, info)
 
 	var buf [64]byte
-	_, _ = h.Read(buf[:])
+	if _, err := io.ReadFull(h, buf[:]); err != nil {
+		panic(fmt.Sprintf("hkdf read: %v", err))
+	}
 
 	var r fr.Element
 	var rBig = new(big.Int).SetBytes(buf[:])
@@ -1212,9 +1211,9 @@ func (c *clientSDKClient) Shield(sender, denom string, amount uint64, availBalan
 	if err != nil {
 		return nil, err
 	}
-	ctBytes, _ := ct.Marshal()
+	ctBytes := ct.Marshal()
 	transcript := c.buildTranscript(sender, "", denom)
-	proof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, transcript)
+	proof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, transcript, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1237,7 +1236,7 @@ func (c *clientSDKClient) Send(sender, receiver, denom string, amount uint64, st
 	aCt, _, _ := elgamal.EncryptWithRandomness(amount, auditorPk, &rA)
 
 	eqT := c.buildTranscript(sender, receiver, denom)
-	eqProof, err := elgamal.ProveEquality(amount, &rS, &rR, &rA, &c.pk, receiverPk, auditorPk, &sCt, &rCt, &aCt, eqT)
+	eqProof, err := elgamal.ProveEquality(amount, &rS, &rR, &rA, &c.pk, receiverPk, auditorPk, &sCt, &rCt, &aCt, eqT, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1252,9 +1251,9 @@ func (c *clientSDKClient) Send(sender, receiver, denom string, amount uint64, st
 		return nil, err
 	}
 	rpBytes, _ := rpProof.Marshal()
-	sB, _ := sCt.Marshal()
-	rB, _ := rCt.Marshal()
-	aB, _ := aCt.Marshal()
+	sB := sCt.Marshal()
+	rB := rCt.Marshal()
+	aB := aCt.Marshal()
 	return &sdkSendResult{SenderUpdate: sB, ReceiverUpdate: rB, AuditorUpdate: aB, EqualityProof: eqProof.Marshal(), RangeProof: rpBytes, RSender: rS}, nil
 }
 
@@ -1279,9 +1278,9 @@ func (c *clientSDKClient) ApplyPending(sender, denom string, availBalance, pendB
 	if err != nil {
 		return nil, err
 	}
-	newCtBytes, _ := newCt.Marshal()
+	newCtBytes := newCt.Marshal()
 	transcript := c.buildTranscript(sender, "", denom)
-	proof, err := elgamal.ProveApplyPending(&c.sk, &c.pk, &pendCt, &newCt, pendingAmount, &rNew, transcript)
+	proof, err := elgamal.ProveApplyPending(&c.sk, &c.pk, &pendCt, &newCt, pendingAmount, &rNew, transcript, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1301,10 +1300,10 @@ type sdkUnshieldResult struct {
 func (c *clientSDKClient) Unshield(sender, denom string, amount uint64, state *clientSDKBalanceState, availBalance []byte, maxBits int) (*sdkUnshieldResult, error) {
 	r := clientSDKDeriveR(&c.sk, c.chainID, denom, availBalance, "unshield")
 	ct, _, _ := elgamal.EncryptWithRandomness(amount, &c.pk, &r)
-	ctBytes, _ := ct.Marshal()
+	ctBytes := ct.Marshal()
 
 	dleqT := c.buildTranscript(sender, "", denom)
-	dleqProof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, dleqT)
+	dleqProof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, dleqT, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1320,4 +1319,130 @@ func (c *clientSDKClient) Unshield(sender, denom string, amount uint64, state *c
 	}
 	rpBytes, _ := rpProof.Marshal()
 	return &sdkUnshieldResult{Ciphertext: ctBytes, DecryptionProof: dleqProof.Marshal(), RangeProof: rpBytes, R: r}, nil
+}
+
+// ---------------------------------------------------------------------------
+// TestGenesisRoundTrip verifies that InitGenesis(state) → ExportGenesis()
+// produces an equivalent state. This is critical for chain upgrades and state
+// migrations — a regression here could halt the chain on restart.
+// ---------------------------------------------------------------------------
+
+func TestGenesisRoundTrip(t *testing.T) {
+	k, _, ctx := setupTestKeeper(t)
+
+	// Build a non-trivial genesis state with multiple accounts, balances, and flags.
+	_, pk1, err := elgamal.KeyGen(rand.Reader)
+	require.NoError(t, err)
+	_, pk2, err := elgamal.KeyGen(rand.Reader)
+	require.NoError(t, err)
+	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
+	require.NoError(t, err)
+
+	// Create valid ciphertexts (128 bytes each).
+	ct1, _, err := elgamal.Encrypt(1000, &pk1, rand.Reader)
+	require.NoError(t, err)
+	ct2, _, err := elgamal.Encrypt(500, &pk2, rand.Reader)
+	require.NoError(t, err)
+	ct3, _, err := elgamal.Encrypt(200, &pk1, rand.Reader)
+	require.NoError(t, err)
+	ct4, _, err := elgamal.Encrypt(300, &pk2, rand.Reader)
+	require.NoError(t, err)
+
+	alice := sdk.AccAddress([]byte("alice_______________")).String()
+	bob := sdk.AccAddress([]byte("bob_________________")).String()
+
+	params := types.Params{
+		AuditorPubKey:   elgamal.MarshalPublicKey(&auditorPk),
+		MaxTransferBits: 48,
+	}
+
+	inputState := &types.GenesisState{
+		Params: &params,
+		Accounts: []*types.AccountState{
+			{
+				Address: alice,
+				Pubkey:  elgamal.MarshalPublicKey(&pk1),
+				AvailableBalances: []*types.BalanceEntry{
+					{Denom: "uatom", Ciphertext: ct1.Marshal()},
+				},
+				PendingBalances: []*types.BalanceEntry{
+					{Denom: "uatom", Ciphertext: ct3.Marshal()},
+				},
+				PendingIsZero: []*types.PendingIsZeroEntry{
+					{Denom: "uatom", IsZero: false},
+				},
+			},
+			{
+				Address: bob,
+				Pubkey:  elgamal.MarshalPublicKey(&pk2),
+				AvailableBalances: []*types.BalanceEntry{
+					{Denom: "uatom", Ciphertext: ct2.Marshal()},
+				},
+				PendingBalances: []*types.BalanceEntry{
+					{Denom: "uatom", Ciphertext: ct4.Marshal()},
+				},
+				PendingIsZero: []*types.PendingIsZeroEntry{
+					{Denom: "uatom", IsZero: true},
+				},
+			},
+		},
+	}
+
+	// Validate input state.
+	require.NoError(t, inputState.Validate())
+
+	// Init genesis.
+	require.NoError(t, k.InitGenesis(ctx, inputState))
+
+	// Export genesis.
+	exported, err := k.ExportGenesis(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, exported)
+	require.NotNil(t, exported.Params)
+
+	// Validate exported state.
+	require.NoError(t, exported.Validate())
+
+	// Compare params.
+	require.Equal(t, inputState.Params.MaxTransferBits, exported.Params.MaxTransferBits)
+	require.Equal(t, inputState.Params.AuditorPubKey, exported.Params.AuditorPubKey)
+
+	// Compare accounts — ExportGenesis iterates in key order which may differ
+	// from input order, so build maps keyed by address.
+	require.Len(t, exported.Accounts, len(inputState.Accounts))
+
+	exportedByAddr := make(map[string]*types.AccountState)
+	for _, acct := range exported.Accounts {
+		exportedByAddr[acct.Address] = acct
+	}
+
+	for _, input := range inputState.Accounts {
+		exp, ok := exportedByAddr[input.Address]
+		require.True(t, ok, "exported state missing account %s", input.Address)
+
+		require.Equal(t, input.Pubkey, exp.Pubkey, "pubkey mismatch for %s", input.Address)
+
+		// Available balances.
+		require.Len(t, exp.AvailableBalances, len(input.AvailableBalances), "avail count for %s", input.Address)
+		for i, inBal := range input.AvailableBalances {
+			require.Equal(t, inBal.Denom, exp.AvailableBalances[i].Denom)
+			require.Equal(t, inBal.Ciphertext, exp.AvailableBalances[i].Ciphertext)
+		}
+
+		// Pending balances.
+		require.Len(t, exp.PendingBalances, len(input.PendingBalances), "pend count for %s", input.Address)
+		for i, inBal := range input.PendingBalances {
+			require.Equal(t, inBal.Denom, exp.PendingBalances[i].Denom)
+			require.Equal(t, inBal.Ciphertext, exp.PendingBalances[i].Ciphertext)
+		}
+
+		// PendingIsZero flags.
+		require.Len(t, exp.PendingIsZero, len(input.PendingIsZero), "piz count for %s", input.Address)
+		for i, inPiz := range input.PendingIsZero {
+			require.Equal(t, inPiz.Denom, exp.PendingIsZero[i].Denom)
+			require.Equal(t, inPiz.IsZero, exp.PendingIsZero[i].IsZero)
+		}
+	}
+
+	t.Log("Genesis round-trip: PASSED")
 }

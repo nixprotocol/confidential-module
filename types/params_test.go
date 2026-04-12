@@ -1,8 +1,19 @@
 package types
 
 import (
+	"crypto/rand"
 	"testing"
+
+	elgamal "github.com/nixprotocol/elgamal-bn254"
 )
+
+func validPubkey() []byte {
+	_, pk, err := elgamal.KeyGen(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return elgamal.MarshalPublicKey(&pk)
+}
 
 func validParams() Params {
 	return Params{
@@ -49,7 +60,8 @@ func TestValidate_AuditorPubKey(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"empty", []byte{}, false},
-		{"valid length", make([]byte, 64), false},
+		{"valid key", validPubkey(), false},
+		{"identity (all zeros)", make([]byte, 64), true},
 		{"too short", make([]byte, 32), true},
 		{"too long", make([]byte, 128), true},
 	}

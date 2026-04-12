@@ -168,7 +168,7 @@ func deterministicZeroEncrypt(pk *bn254.G1Affine, addr []byte, denom string, blo
 	if err != nil {
 		return nil, err
 	}
-	return ct.Marshal()
+	return ct.Marshal(), nil
 }
 
 // unmarshalCiphertext parses 128 bytes into an elgamal.Ciphertext.
@@ -230,7 +230,7 @@ func addCiphertexts(a, b []byte) ([]byte, error) {
 		return nil, fmt.Errorf("unmarshal second ciphertext: %w", err)
 	}
 	result := elgamal.Add(ctA, ctB)
-	return result.Marshal()
+	return result.Marshal(), nil
 }
 
 // subCiphertexts performs homomorphic subtraction of two serialized ciphertexts (a - b).
@@ -246,5 +246,5 @@ func subCiphertexts(a, b []byte) ([]byte, error) {
 		return nil, fmt.Errorf("unmarshal second ciphertext: %w", err)
 	}
 	result := elgamal.Sub(ctA, ctB)
-	return result.Marshal()
+	return result.Marshal(), nil
 }

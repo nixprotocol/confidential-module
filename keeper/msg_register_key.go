@@ -28,7 +28,11 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 	addrBytes := senderAddr.Bytes()
 
 	// 3. Check not already registered.
-	if k.HasRegisteredKey(ctx, addrBytes) {
+	registered, err := k.HasRegisteredKey(ctx, addrBytes)
+	if err != nil {
+		return nil, err
+	}
+	if registered {
 		return nil, types.ErrKeyAlreadyRegistered.Wrap("key already registered for this account")
 	}
 

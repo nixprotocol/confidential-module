@@ -27,7 +27,7 @@ func (k msgServer) SetAuditorKey(goCtx context.Context, msg *types.MsgSetAuditor
 
 	// 2. Validate the new auditor public key (on-curve, not identity).
 	if _, err := unmarshalPublicKey(msg.Pubkey); err != nil {
-		return nil, types.ErrAuditorKeyNotSet.Wrap(err.Error())
+		return nil, types.ErrInvalidPubkey.Wrap(err.Error())
 	}
 
 	// 3. Load current params and set the new auditor key.
