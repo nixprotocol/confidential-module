@@ -14,11 +14,18 @@ Add the following to your chain's `go.mod`:
 
 ```
 require (
-    github.com/nixprotocol/confidential-module v0.1.0
+    github.com/nixprotocol/confidential-module v0.1.1
     github.com/nixprotocol/elgamal-bn254       v0.1.0
-    github.com/nixprotocol/bulletproofs-bn254   v0.1.0
+    github.com/nixprotocol/bulletproofs-bn254  v0.1.1
 )
 ```
+
+> **Do not pin the `v0.1.0` versions of these two.**
+> `confidential-module v0.1.0` was published with `replace` directives pointing
+> at local filesystem paths, so it cannot be resolved by anyone else.
+> `bulletproofs-bn254 v0.1.0` resolves an earlier `elgamal-bn254` that still
+> accepted non-canonical curve point encodings, which leaves proof and ciphertext
+> bytes malleable.
 
 Run `go mod tidy` to resolve transitive dependencies. The module depends on `github.com/consensys/gnark-crypto` for BN254 curve operations.
 
