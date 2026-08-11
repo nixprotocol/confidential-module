@@ -9,10 +9,15 @@ auditor key gives regulated deployments a compliance view without making
 balances public.
 
 ```bash
-go get github.com/nixprotocol/confidential-module@v0.1.2
+go get github.com/nixprotocol/confidential-module@v0.1.3
 ```
 
-> **Use v0.1.2.** The two earlier tags have been withdrawn from this repository:
+> **Use v0.1.3.** Earlier versions do not build for consumers on Go 1.26: they
+> pinned the Go 1.26 fix for `bytedance/sonic` with a `replace` directive, which
+> Go honours only in the main module and ignores for imported packages. v0.1.3
+> carries it as a `require` bump instead.
+
+> The two oldest tags have been withdrawn from this repository:
 > `v0.1.0` was published with `replace` directives pointing at local filesystem
 > paths and cannot be resolved by anyone, and `v0.1.1` was retired when history
 > was rewritten. Both remain fetchable from `proxy.golang.org`, so existing

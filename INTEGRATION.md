@@ -14,11 +14,16 @@ Add the following to your chain's `go.mod`:
 
 ```
 require (
-    github.com/nixprotocol/confidential-module v0.1.2
+    github.com/nixprotocol/confidential-module v0.1.3
     github.com/nixprotocol/elgamal-bn254       v0.1.0
     github.com/nixprotocol/bulletproofs-bn254  v0.1.1
 )
 ```
+
+> On Go 1.26, use `confidential-module` v0.1.3 or later. Earlier versions carry
+> the required `bytedance/sonic` bump as a `replace` directive, which Go applies
+> only to the main module — as a dependency it is ignored, and the build fails
+> in `cosmossdk.io/log` with `undefined: GoMapIterator`.
 
 > **Do not pin the earlier versions of these two.**
 > `confidential-module` v0.1.0 was published with `replace` directives pointing

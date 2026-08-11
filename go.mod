@@ -37,7 +37,7 @@ require (
 	github.com/bgentry/speakeasy v0.2.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.3 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
-	github.com/bytedance/sonic v1.14.2 // indirect
+	github.com/bytedance/sonic v1.15.0 // indirect; v1.14.2 (via cosmossdk.io/log) fails to build on Go 1.26
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -163,5 +163,8 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-// Go 1.26 compatibility (remove when cosmossdk.io/log is updated)
-replace github.com/bytedance/sonic => github.com/bytedance/sonic v1.15.0
+// NOTE: the Go 1.26 sonic fix is a `require` bump above, deliberately NOT a
+// `replace`. A `replace` is honoured only in the main module, so it silently
+// does nothing for anyone importing this package -- they would resolve the
+// broken v1.14.2 and fail to compile. A `require` is honoured transitively
+// through MVS. Remove once cosmossdk.io/log requires a Go 1.26-safe sonic.
