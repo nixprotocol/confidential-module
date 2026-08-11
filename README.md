@@ -118,8 +118,16 @@ app.ModuleManager.Modules[confidentialtypes.ModuleName] = confidentialmodule.New
 ```
 
 > `Shield` and `Unshield` move real tokens through the module account
-> `confidential`. It **must** be registered in `moduleAccPerms` with minter and
-> burner permissions, or those handlers will fail. See `INTEGRATION.md` step 2.
+> `confidential`, which **must** be registered in `moduleAccPerms` or those
+> handlers will fail. Register it with **no permissions** —
+> `{Account: confidentialtypes.ModuleAccountName}`. See `INTEGRATION.md` step 2.
+
+The module is **escrow-only**. Its `BankKeeper` interface declares just
+`SendCoinsFromAccountToModule` and `SendCoinsFromModuleToAccount` — no
+`MintCoins`, no `BurnCoins`. Shielding moves tokens into the module account and
+unshielding moves them back out, so total supply is invariant and the module
+cannot inflate it even if the confidential accounting were wrong. Granting it
+minter or burner permissions would discard that guarantee for nothing.
 
 ## Clients
 
