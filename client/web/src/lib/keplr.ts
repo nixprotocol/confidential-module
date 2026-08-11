@@ -22,10 +22,10 @@ export async function suggestChain(): Promise<void> {
       bech32PrefixConsPub: CHAIN_CONFIG.bech32Prefix + 'valconspub',
     },
     currencies: [{ coinDenom: 'NIX', coinMinimalDenom: 'anix', coinDecimals: 0 },
-                 { coinDenom: 'STAKE', coinMinimalDenom: 'stake', coinDecimals: 0 }],
-    feeCurrencies: [{ coinDenom: 'STAKE', coinMinimalDenom: 'stake', coinDecimals: 0,
+                 { coinDenom: 'FEE', coinMinimalDenom: 'fee', coinDecimals: 0 }],
+    feeCurrencies: [{ coinDenom: 'FEE', coinMinimalDenom: 'fee', coinDecimals: 0,
       gasPriceStep: { low: 0.01, average: 0.025, high: 0.03 } }],
-    stakeCurrency: { coinDenom: 'STAKE', coinMinimalDenom: 'stake', coinDecimals: 0 },
+    stakeCurrency: { coinDenom: 'FEE', coinMinimalDenom: 'fee', coinDecimals: 0 },
   });
 }
 
@@ -51,26 +51,40 @@ export async function signArbitrary(signer: string, data: string): Promise<Uint8
 }
 
 /**
- * Deterministic seed derivation from Keplr's public key.
- * Uses SHA-256(pubKey || salt) to derive a seed. This is deterministic:
- * same Keplr wallet = same pubKey = same seed on any browser.
- * No signing popup required — getKey() is non-interactive.
+ * The message signed to derive the confidential seed. Fixed, so derivation is
+ * deterministic: the same Keplr wallet reproduces the same seed on any browser.
+ */
+const SEED_DERIVATION_MESSAGE =
+  'Derive nix confidential spending key\n\nx/confidential/elgamal/v1/0\n\n' +
+  'Sign this only on a nix wallet you trust. The signature is your spending key.';
+
+/**
+ * Deterministic seed derivation from a Keplr SIGNATURE.
+ *
+ * The seed must depend on something only the account holder can produce. A
+ * signature qualifies; the public key does not.
+ *
+ * This previously hashed SHA-256(pubKey || salt), which was a complete break of
+ * confidentiality: an account's public key is published on chain as soon as it
+ * signs anything, and the salt is a constant in this open-source file. Anyone
+ * could recompute the seed, run it through the same HKDF the wasm uses, recover
+ * the ElGamal secret key, and decrypt that account's entire balance and every
+ * transfer it had ever received -- passively, offline, and retroactively.
+ *
+ * Deriving from a signature costs one Keplr popup per setup. That popup is the
+ * security property, not an inconvenience to design around.
+ *
+ * CAVEAT: this relies on the signature being byte-stable for a fixed message.
+ * Cosmos secp256k1 signing is deterministic (RFC 6979), so it is today. But the
+ * seed is only reproducible while both that and the ADR-036 sign-doc encoding
+ * stay fixed -- if either changes, a user's derived key changes with it. Treat
+ * SEED_DERIVATION_MESSAGE as a consensus-critical constant: never edit it, and
+ * if key derivation must change, add a new counter/version rather than
+ * redefining this one.
  */
 export async function deriveDeterministicSeed(signer: string): Promise<Uint8Array> {
   if (!window.keplr) throw new Error('Keplr not installed');
-
-  // Get the Keplr key (no popup, deterministic per wallet)
-  const key = await window.keplr.getKey(CHAIN_CONFIG.chainId);
-  const pubKeyBytes = key.pubKey; // Uint8Array
-
-  // Derive seed: SHA-256(pubKey || "x/confidential/elgamal/v1/0")
-  const salt = new TextEncoder().encode('x/confidential/elgamal/v1/0');
-  const input = new Uint8Array(pubKeyBytes.length + salt.length);
-  input.set(pubKeyBytes, 0);
-  input.set(salt, pubKeyBytes.length);
-
-  const hashBuffer = await crypto.subtle.digest('SHA-256', input);
-  return new Uint8Array(hashBuffer);
+  return signArbitrary(signer, SEED_DERIVATION_MESSAGE);
 }
 
 export function getOfflineSigner() {
