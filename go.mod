@@ -14,8 +14,8 @@ require (
 	github.com/cosmos/cosmos-sdk v0.53.6
 	github.com/cosmos/gogoproto v1.7.2
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
-	github.com/nixprotocol/bulletproofs-bn254 v0.0.0
-	github.com/nixprotocol/elgamal-bn254 v0.0.0
+	github.com/nixprotocol/bulletproofs-bn254 v0.1.1
+	github.com/nixprotocol/elgamal-bn254 v0.1.0
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/genproto/googleapis/api v0.0.0-20250707201910-8d1bb00bc6a7
@@ -163,13 +163,5 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace (
-	// Go 1.26 compatibility (remove when cosmossdk.io/log is updated)
-	github.com/bytedance/sonic => github.com/bytedance/sonic v1.15.0
-
-	// Local sibling checkouts, matching how nix-cosmos-sdk and the chain itself
-	// resolve these. Pinning published pseudo-versions here meant this module's
-	// own tests ran against different crypto than the chain builds with.
-	github.com/nixprotocol/bulletproofs-bn254 => ../bulletproofs-bn254
-	github.com/nixprotocol/elgamal-bn254 => ../elgamal-bn254
-)
+// Go 1.26 compatibility (remove when cosmossdk.io/log is updated)
+replace github.com/bytedance/sonic => github.com/bytedance/sonic v1.15.0
