@@ -85,17 +85,31 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, err
 	}
 
-	// 7. Prepare commitments for aggregate range proof.
+	// 7. Prepare commitments for the aggregate range proof.
 	// The range proof verifies two statements:
-	//   (a) transfer amount >= 0
-	//   (b) sender's new available balance >= 0
+	//   (a) transfer amount is in range
+	//   (b) sender's new available balance is in range (i.e. did not go negative)
 	//
-	// The C2 component of an ElGamal ciphertext Enc(v, pk, r) = (r*G, v*G + r*pk)
-	// is a Pedersen commitment with blinding base H = pk.
-	// For the sender: H = senderPk.
+	// These are NOT taken over the ciphertexts. An ElGamal ciphertext
+	// Enc(v, pk, r) = (r*G, v*G + r*pk) has a C2 that looks like a Pedersen
+	// commitment with blinding base pk — but pk = sk*G and the sender knows sk,
+	// so C2 = (v + r*sk)*G can be re-opened to any value at all. A range proof
+	// over C2 with Hbase = senderPk constrains nothing for the sender, who is
+	// exactly the party submitting it.
 	//
-	// Commitment 1: senderCt.C2 = transferAmount*G + r_sender*senderPk
-	// Commitment 2: (availableBalance - senderCt).C2 = newBalance*G + r_new*senderPk
+	// Instead the sender supplies real Pedersen commitments blinded by a
+	// nothing-up-my-sleeve base H, and a commitment-equality proof per
+	// commitment tying it to the corresponding ciphertext. The range proof then
+	// runs over the binding commitments.
+	transferCommitment, err := unmarshalCommitment(msg.TransferCommitment)
+	if err != nil {
+		return nil, types.ErrInvalidCiphertext.Wrap("transfer_commitment: " + err.Error())
+	}
+	remainingCommitment, err := unmarshalCommitment(msg.RemainingCommitment)
+	if err != nil {
+		return nil, types.ErrInvalidCiphertext.Wrap("remaining_commitment: " + err.Error())
+	}
+
 	availBytes, err := k.GetAvailableBalance(ctx, senderBytes, msg.Denom)
 	if err != nil {
 		return nil, err
@@ -108,15 +122,23 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 	// Compute new balance ciphertext: available - senderUpdate
 	newBalanceCt := elgamal.Sub(availCt, senderCt)
 
-	// The commitments for the range proof are the C2 components.
-	commitments := []bn254.G1Affine{senderCt.C2, newBalanceCt.C2}
-
-	// 8. Verify aggregate range proof.
-	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, &senderPk, int(params.MaxTransferBits), msg.Sender, msg.Receiver, msg.Denom); err != nil {
+	// 8. Tie each commitment to the ciphertext it claims to describe.
+	if err := k.verifyCommitmentEquality(ctx, msg.TransferCommitmentProof, &senderPk, senderCt,
+		&transferCommitment, commitmentRoleTransfer, msg.Sender, msg.Receiver, msg.Denom); err != nil {
+		return nil, err
+	}
+	if err := k.verifyCommitmentEquality(ctx, msg.RemainingCommitmentProof, &senderPk, &newBalanceCt,
+		&remainingCommitment, commitmentRoleRemaining, msg.Sender, msg.Receiver, msg.Denom); err != nil {
 		return nil, err
 	}
 
-	// 9. Update sender's available balance: available -= senderUpdate.
+	// 9. Verify aggregate range proof over the binding commitments.
+	commitments := []bn254.G1Affine{transferCommitment, remainingCommitment}
+	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, RangeProofBlindingBase(), int(params.MaxTransferBits), msg.Sender, msg.Receiver, msg.Denom); err != nil {
+		return nil, err
+	}
+
+	// 10. Update sender's available balance: available -= senderUpdate.
 	newAvail, err := subCiphertexts(availBytes, msg.SenderUpdate)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
@@ -125,7 +147,7 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, err
 	}
 
-	// 10. Update receiver's pending balance: pending += receiverUpdate.
+	// 11. Update receiver's pending balance: pending += receiverUpdate.
 	pendBytes, err := k.GetPendingBalance(ctx, receiverBytes, msg.Denom)
 	if err != nil {
 		return nil, err
@@ -138,12 +160,12 @@ func (k msgServer) ConfidentialSend(goCtx context.Context, msg *types.MsgConfide
 		return nil, err
 	}
 
-	// 11. Clear the receiver's pending-is-zero flag (they now have incoming funds).
+	// 12. Clear the receiver's pending-is-zero flag (they now have incoming funds).
 	if err := k.SetPendingIsZero(ctx, receiverBytes, msg.Denom, false); err != nil {
 		return nil, err
 	}
 
-	// 12. Emit event with the auditor ciphertext for audit trail.
+	// 13. Emit event with the auditor ciphertext for audit trail.
 	eventAttrs := []sdk.Attribute{
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
 		sdk.NewAttribute(types.AttributeKeyReceiver, msg.Receiver),

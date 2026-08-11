@@ -15,7 +15,7 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	// 1. Validate the public key (on-curve, not identity).
-	_, err := unmarshalPublicKey(msg.Pubkey)
+	pk, err := unmarshalPublicKey(msg.Pubkey)
 	if err != nil {
 		return nil, types.ErrInvalidPubkey.Wrap(err.Error())
 	}
@@ -36,12 +36,19 @@ func (k msgServer) RegisterKey(goCtx context.Context, msg *types.MsgRegisterKey)
 		return nil, types.ErrKeyAlreadyRegistered.Wrap("key already registered for this account")
 	}
 
-	// 4. Store pubkey.
+	// 4. Verify proof of possession. Registration is permanent and there is no
+	// rotation path, so an account that binds itself to a key it does not
+	// control is stranded for good — and anything sent to it with it.
+	if err := k.verifyPossession(ctx, msg.Pop, &pk, msg.Sender); err != nil {
+		return nil, err
+	}
+
+	// 5. Store pubkey.
 	if err := k.SetAccountPubkey(ctx, addrBytes, msg.Pubkey); err != nil {
 		return nil, err
 	}
 
-	// 5. Emit event.
+	// 6. Emit event.
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeRegisterKey,
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),

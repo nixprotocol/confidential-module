@@ -19,6 +19,16 @@ const (
 	MaxEqualityProofSize       = 2048 // 4x of 512
 	MaxApplyPendingProofSize   = 1408 // 4x of 352
 	MaxAggregateRangeProofSize = 4096 // ~5.5x of 740, accommodates larger bit ranges
+
+	// PedersenCommitmentSize is an uncompressed BN254 G1 point.
+	PedersenCommitmentSize = 64
+
+	// CommitmentEqualityProofSize is exact (3 scalars + 3 G1 points), so it is
+	// checked for equality rather than as an upper bound.
+	CommitmentEqualityProofSize = 3*32 + 3*64 // 288
+
+	// PopProofSize is exact (1 scalar + 1 G1 point).
+	PopProofSize = 32 + 64 // 96
 )
 
 // Compile-time interface checks.
@@ -39,6 +49,9 @@ func (msg *MsgRegisterKey) ValidateBasic() error {
 	}
 	if len(msg.Pubkey) != 64 {
 		return ErrInvalidPubkey.Wrapf("pubkey must be 64 bytes, got %d", len(msg.Pubkey))
+	}
+	if len(msg.Pop) != PopProofSize {
+		return ErrInvalidProof.Wrapf("pop must be %d bytes, got %d", PopProofSize, len(msg.Pop))
 	}
 	return nil
 }
@@ -116,6 +129,22 @@ func (msg *MsgConfidentialSend) ValidateBasic() error {
 	if len(msg.RangeProof) > MaxAggregateRangeProofSize {
 		return ErrInvalidProof.Wrapf("range proof exceeds max size %d bytes", MaxAggregateRangeProofSize)
 	}
+	if len(msg.TransferCommitment) != PedersenCommitmentSize {
+		return ErrInvalidCiphertext.Wrapf("transfer_commitment must be %d bytes, got %d",
+			PedersenCommitmentSize, len(msg.TransferCommitment))
+	}
+	if len(msg.RemainingCommitment) != PedersenCommitmentSize {
+		return ErrInvalidCiphertext.Wrapf("remaining_commitment must be %d bytes, got %d",
+			PedersenCommitmentSize, len(msg.RemainingCommitment))
+	}
+	if len(msg.TransferCommitmentProof) != CommitmentEqualityProofSize {
+		return ErrInvalidProof.Wrapf("transfer_commitment_proof must be %d bytes, got %d",
+			CommitmentEqualityProofSize, len(msg.TransferCommitmentProof))
+	}
+	if len(msg.RemainingCommitmentProof) != CommitmentEqualityProofSize {
+		return ErrInvalidProof.Wrapf("remaining_commitment_proof must be %d bytes, got %d",
+			CommitmentEqualityProofSize, len(msg.RemainingCommitmentProof))
+	}
 	if len(msg.EqualityProof) == 0 {
 		return ErrInvalidProof.Wrap("equality proof cannot be empty")
 	}
@@ -192,6 +221,14 @@ func (msg *MsgUnshield) ValidateBasic() error {
 	}
 	if len(msg.DecryptionProof) > MaxDLEQProofSize {
 		return ErrInvalidProof.Wrapf("decryption proof exceeds max size %d bytes", MaxDLEQProofSize)
+	}
+	if len(msg.RemainingCommitment) != PedersenCommitmentSize {
+		return ErrInvalidCiphertext.Wrapf("remaining_commitment must be %d bytes, got %d",
+			PedersenCommitmentSize, len(msg.RemainingCommitment))
+	}
+	if len(msg.RemainingCommitmentProof) != CommitmentEqualityProofSize {
+		return ErrInvalidProof.Wrapf("remaining_commitment_proof must be %d bytes, got %d",
+			CommitmentEqualityProofSize, len(msg.RemainingCommitmentProof))
 	}
 	if len(msg.EncryptedMemo) > MaxEncryptedMemoSize {
 		return ErrInvalidMemo.Wrapf("encrypted_memo exceeds max size %d bytes", MaxEncryptedMemoSize)

@@ -4,33 +4,23 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"fmt"
-	"io"
-	"math/big"
 	"sort"
 	"testing"
 
 	"cosmossdk.io/core/store"
 	sdkmath "cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	storetypes "cosmossdk.io/store/types"
-	"golang.org/x/crypto/hkdf"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/consensys/gnark-crypto/ecc/bn254"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/stretchr/testify/require"
 
-	bulletproofs "github.com/nixprotocol/bulletproofs-bn254"
-	elgamal "github.com/nixprotocol/elgamal-bn254"
+	confsdk "github.com/nixprotocol/confidential-module/client/sdk"
 	"github.com/nixprotocol/confidential-module/keeper"
 	"github.com/nixprotocol/confidential-module/types"
+	elgamal "github.com/nixprotocol/elgamal-bn254"
 )
-
-// hkdfNew wraps hkdf.New for the test's HKDF derivation.
-func hkdfNew(ikm, salt, info []byte) io.Reader {
-	return hkdf.New(sha256.New, ikm, salt, info)
-}
 
 // ---------------------------------------------------------------------------
 // Mock BankKeeper
@@ -198,12 +188,12 @@ func newMemIterator(data map[string][]byte, start, end []byte, ascending bool) *
 }
 
 func (it *memIterator) Domain() ([]byte, []byte) { return it.start, it.end }
-func (it *memIterator) Valid() bool               { return it.pos < len(it.keys) }
-func (it *memIterator) Next()                     { it.pos++ }
-func (it *memIterator) Key() []byte               { return []byte(it.keys[it.pos]) }
-func (it *memIterator) Value() []byte             { return it.values[it.pos] }
-func (it *memIterator) Error() error              { return nil }
-func (it *memIterator) Close() error              { return nil }
+func (it *memIterator) Valid() bool              { return it.pos < len(it.keys) }
+func (it *memIterator) Next()                    { it.pos++ }
+func (it *memIterator) Key() []byte              { return []byte(it.keys[it.pos]) }
+func (it *memIterator) Value() []byte            { return it.values[it.pos] }
+func (it *memIterator) Error() error             { return nil }
+func (it *memIterator) Close() error             { return nil }
 
 // memStoreService wraps a memKVStore and implements store.KVStoreService.
 type memStoreService struct {
@@ -279,6 +269,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: alice,
 		Pubkey: elgamal.MarshalPublicKey(&alicePk),
+		Pop:    popFor(t, k, ctx, alice, &aliceSk, &alicePk),
 	})
 	require.NoError(t, err)
 
@@ -289,6 +280,7 @@ func TestFullConfidentialFlow(t *testing.T) {
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: bob,
 		Pubkey: elgamal.MarshalPublicKey(&bobPk),
+		Pop:    popFor(t, k, ctx, bob, &bobSk, &bobPk),
 	})
 	require.NoError(t, err)
 
@@ -383,28 +375,24 @@ func TestFullConfidentialFlow(t *testing.T) {
 	var newBalR fr.Element
 	newBalR.Sub(&shieldR, &rSender)
 
-	// The range proof commitments are C2 of senderCt and C2 of (avail - senderCt).
-	// senderCt.C2 has value=300, blinding=rSender.
-	// newBal.C2 has value=700, blinding=shieldR - rSender.
-	rangeTranscript := k.BuildTranscriptForTest(ctx, alice, bob, "uatom")
-	aggProof, err := bulletproofs.AggregateRangeProve(
-		[]uint64{sendAmount, newBalAmount},
-		[]*fr.Element{&rSender, &newBalR},
-		&alicePk, 64, rangeTranscript,
-	)
-	require.NoError(t, err)
-	aggProofBytes, err := aggProof.Marshal()
-	require.NoError(t, err)
+	// The range proof runs over binding Pedersen commitments, each tied to its
+	// ciphertext by a commitment-equality proof.
+	sp := buildSendProofs(t, k, ctx, alice, bob, "uatom", &alicePk,
+		&senderCt, &knownAvailCt, sendAmount, newBalAmount, &rSender, &newBalR, 64)
 
 	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
-		Sender:             alice,
-		Receiver:           bob,
-		Denom:              "uatom",
-		SenderUpdate:  senderCtBytes,
-		ReceiverUpdate: receiverCtBytes,
-		AuditorUpdate: auditorCtBytes,
-		RangeProof:    aggProofBytes,
-		EqualityProof: equalityProofBytes,
+		Sender:                   alice,
+		Receiver:                 bob,
+		Denom:                    "uatom",
+		SenderUpdate:             senderCtBytes,
+		ReceiverUpdate:           receiverCtBytes,
+		AuditorUpdate:            auditorCtBytes,
+		RangeProof:               sp.RangeProof,
+		EqualityProof:            equalityProofBytes,
+		TransferCommitment:       sp.TransferCommitment,
+		RemainingCommitment:      sp.RemainingCommitment,
+		TransferCommitmentProof:  sp.TransferCommitmentProof,
+		RemainingCommitmentProof: sp.RemainingCommitmentProof,
 	})
 	require.NoError(t, err)
 
@@ -492,26 +480,20 @@ func TestFullConfidentialFlow(t *testing.T) {
 	var remainR fr.Element
 	remainR.Sub(&applyR, &unshieldR)
 
-	// The verifier uses AggregateRangeVerify with a single commitment.
-	// The commitment is (avail - unshieldCt).C2 = remainAmount*G + remainR*bobPk
-	// which is a Pedersen commitment with value=0, blinding=remainR, base H=bobPk.
-	unshieldRangeTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
-	unshieldRangeProof, err := bulletproofs.AggregateRangeProve(
-		[]uint64{remainAmount},
-		[]*fr.Element{&remainR},
-		&bobPk, 64, unshieldRangeTranscript,
-	)
-	require.NoError(t, err)
-	unshieldRangeProofBytes, err := unshieldRangeProof.Marshal()
-	require.NoError(t, err)
+	// The range proof runs over a binding Pedersen commitment tied to
+	// (avail - unshieldCt) by a commitment-equality proof.
+	up := buildUnshieldProofs(t, k, ctx, bob, "uatom", &bobPk,
+		&unshieldCt, &knownBobAvailCt, remainAmount, &remainR, 64)
 
 	_, err = msgServer.Unshield(ctx, &types.MsgUnshield{
-		Sender:          bob,
-		Denom:           "uatom",
-		Amount:          "300",
-		Ciphertext:      unshieldCtBytes,
-		RangeProof:      unshieldRangeProofBytes,
-		DecryptionProof: unshieldDLEQBytes,
+		Sender:                   bob,
+		Denom:                    "uatom",
+		Amount:                   "300",
+		Ciphertext:               unshieldCtBytes,
+		RangeProof:               up.RangeProof,
+		DecryptionProof:          unshieldDLEQBytes,
+		RemainingCommitment:      up.RemainingCommitment,
+		RemainingCommitmentProof: up.RemainingCommitmentProof,
 	})
 	require.NoError(t, err)
 
@@ -547,8 +529,8 @@ func TestEncryptedMemoOnAllOperations(t *testing.T) {
 
 	// Params
 	params := types.Params{
-		AuditorPubKey:         elgamal.MarshalPublicKey(&auditorPk),
-		MaxTransferBits:       64,
+		AuditorPubKey:   elgamal.MarshalPublicKey(&auditorPk),
+		MaxTransferBits: 64,
 	}
 	require.NoError(t, k.SetParams(ctx, params))
 
@@ -562,10 +544,12 @@ func TestEncryptedMemoOnAllOperations(t *testing.T) {
 	// Register both keys
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: alice, Pubkey: elgamal.MarshalPublicKey(&alicePk),
+		Pop: popFor(t, k, ctx, alice, &aliceSk, &alicePk),
 	})
 	require.NoError(t, err)
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: bob, Pubkey: elgamal.MarshalPublicKey(&bobPk),
+		Pop: popFor(t, k, ctx, bob, &bobSk, &bobPk),
 	})
 	require.NoError(t, err)
 
@@ -647,23 +631,23 @@ func TestEncryptedMemoOnAllOperations(t *testing.T) {
 	newBalAmount := shieldAmount - sendAmount
 	var newBalR fr.Element
 	newBalR.Sub(&shieldR, &rSender)
-	rangeTranscript := k.BuildTranscriptForTest(ctx, alice, bob, "uatom")
-	aggProof, _ := bulletproofs.AggregateRangeProve(
-		[]uint64{sendAmount, newBalAmount}, []*fr.Element{&rSender, &newBalR},
-		&alicePk, 64, rangeTranscript,
-	)
-	aggProofBytes, _ := aggProof.Marshal()
+	sp := buildSendProofs(t, k, ctx, alice, bob, "uatom", &alicePk,
+		&senderCt, &knownAvailCt, sendAmount, newBalAmount, &rSender, &newBalR, 64)
 
 	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
-		Sender:             alice,
-		Receiver:           bob,
-		Denom:              "uatom",
-		SenderUpdate:  senderCtBytes,
-		ReceiverUpdate: receiverCtBytes,
-		AuditorUpdate: auditorCtBytes,
-		RangeProof:    aggProofBytes,
-		EqualityProof: equalityProof.Marshal(),
-		EncryptedMemo: fakeMemo, // <-- encrypted memo included
+		Sender:                   alice,
+		Receiver:                 bob,
+		Denom:                    "uatom",
+		SenderUpdate:             senderCtBytes,
+		ReceiverUpdate:           receiverCtBytes,
+		AuditorUpdate:            auditorCtBytes,
+		RangeProof:               sp.RangeProof,
+		EqualityProof:            equalityProof.Marshal(),
+		TransferCommitment:       sp.TransferCommitment,
+		RemainingCommitment:      sp.RemainingCommitment,
+		TransferCommitmentProof:  sp.TransferCommitmentProof,
+		RemainingCommitmentProof: sp.RemainingCommitmentProof,
+		EncryptedMemo:            fakeMemo, // <-- encrypted memo included
 	})
 	require.NoError(t, err, "ConfidentialSend with encrypted_memo should succeed")
 
@@ -728,20 +712,19 @@ func TestEncryptedMemoOnAllOperations(t *testing.T) {
 
 	var remainR fr.Element
 	remainR.Sub(&applyR, &unshieldR)
-	unshieldRangeTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
-	unshieldRangeProof, _ := bulletproofs.AggregateRangeProve(
-		[]uint64{0}, []*fr.Element{&remainR}, &bobPk, 64, unshieldRangeTranscript,
-	)
-	unshieldRangeProofBytes, _ := unshieldRangeProof.Marshal()
+	up := buildUnshieldProofs(t, k, ctx, bob, "uatom", &bobPk,
+		&unshieldCt, &knownBobAvailCt, 0, &remainR, 64)
 
 	_, err = msgServer.Unshield(ctx, &types.MsgUnshield{
-		Sender:          bob,
-		Denom:           "uatom",
-		Amount:          "300",
-		Ciphertext:      unshieldCtBytes,
-		RangeProof:      unshieldRangeProofBytes,
-		DecryptionProof: unshieldDLEQ.Marshal(),
-		EncryptedMemo:   fakeMemo, // <-- encrypted memo included
+		Sender:                   bob,
+		Denom:                    "uatom",
+		Amount:                   "300",
+		Ciphertext:               unshieldCtBytes,
+		RangeProof:               up.RangeProof,
+		DecryptionProof:          unshieldDLEQ.Marshal(),
+		RemainingCommitment:      up.RemainingCommitment,
+		RemainingCommitmentProof: up.RemainingCommitmentProof,
+		EncryptedMemo:            fakeMemo, // <-- encrypted memo included
 	})
 	require.NoError(t, err, "Unshield with encrypted_memo should succeed")
 
@@ -780,8 +763,8 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	require.NoError(t, err)
 
 	params := types.Params{
-		AuditorPubKey:         elgamal.MarshalPublicKey(&auditorPk),
-		MaxTransferBits:       64,
+		AuditorPubKey:   elgamal.MarshalPublicKey(&auditorPk),
+		MaxTransferBits: 64,
 	}
 	require.NoError(t, k.SetParams(ctx, params))
 
@@ -793,8 +776,8 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	// Fund with a huge amount
 	// 2^63 - 1 = 9223372036854775807 (max int64, max for fundAccount)
 	// Test with large amounts across ALL operations
-	var shieldAmount uint64 = 1<<63 - 1 // 9223372036854775807 (max int64)
-	var sendAmount uint64 = 4611686018427387903 // ~2^62 - 1
+	var shieldAmount uint64 = 1<<63 - 1             // 9223372036854775807 (max int64)
+	var sendAmount uint64 = 4611686018427387903     // ~2^62 - 1
 	var unshieldAmount uint64 = 2305843009213693951 // ~2^61 - 1
 
 	bankKeeper.fundAccount(alice, "uatom", int64(shieldAmount))
@@ -804,10 +787,12 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	// Register keys
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: alice, Pubkey: elgamal.MarshalPublicKey(&alicePk),
+		Pop: popFor(t, k, ctx, alice, &aliceSk, &alicePk),
 	})
 	require.NoError(t, err)
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: bob, Pubkey: elgamal.MarshalPublicKey(&bobPk),
+		Pop: popFor(t, k, ctx, bob, &bobSk, &bobPk),
 	})
 	require.NoError(t, err)
 
@@ -862,23 +847,23 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	remainAmount := shieldAmount - sendAmount
 	var remainR fr.Element
 	remainR.Sub(&shieldR, &rSender)
-	rangeTranscript := k.BuildTranscriptForTest(ctx, alice, bob, "uatom")
-	aggProof, err := bulletproofs.AggregateRangeProve(
-		[]uint64{sendAmount, remainAmount}, []*fr.Element{&rSender, &remainR},
-		&alicePk, 64, rangeTranscript,
-	)
-	require.NoError(t, err, "Range proof for large remaining amount should succeed")
-	aggProofBytes, _ := aggProof.Marshal()
+	// After Shield the stored available balance is exactly shieldCt.
+	sp := buildSendProofs(t, k, ctx, alice, bob, "uatom", &alicePk,
+		&senderCt, &shieldCt, sendAmount, remainAmount, &rSender, &remainR, 64)
 
 	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
-		Sender:         alice,
-		Receiver:       bob,
-		Denom:          "uatom",
-		SenderUpdate:   senderCtBytes,
-		ReceiverUpdate: receiverCtBytes,
-		AuditorUpdate:  auditorCtBytes,
-		RangeProof:     aggProofBytes,
-		EqualityProof:  equalityProof.Marshal(),
+		Sender:                   alice,
+		Receiver:                 bob,
+		Denom:                    "uatom",
+		SenderUpdate:             senderCtBytes,
+		ReceiverUpdate:           receiverCtBytes,
+		AuditorUpdate:            auditorCtBytes,
+		RangeProof:               sp.RangeProof,
+		EqualityProof:            equalityProof.Marshal(),
+		TransferCommitment:       sp.TransferCommitment,
+		RemainingCommitment:      sp.RemainingCommitment,
+		TransferCommitmentProof:  sp.TransferCommitmentProof,
+		RemainingCommitmentProof: sp.RemainingCommitmentProof,
 	})
 	require.NoError(t, err, "Send with large remaining balance should succeed")
 	t.Logf("Send: OK (alice remaining: %d)", remainAmount)
@@ -926,20 +911,19 @@ func TestLargeAmountsNearUint64Max(t *testing.T) {
 	bobRemain := sendAmount - unshieldAmount
 	var bobRemainR fr.Element
 	bobRemainR.Sub(&applyR, &unshieldR)
-	unshieldRangeTranscript := k.BuildTranscriptForTest(ctx, bob, "", "uatom")
-	unshieldRangeProof, err := bulletproofs.AggregateRangeProve(
-		[]uint64{bobRemain}, []*fr.Element{&bobRemainR}, &bobPk, 64, unshieldRangeTranscript,
-	)
-	require.NoError(t, err)
-	unshieldRangeProofBytes, _ := unshieldRangeProof.Marshal()
+	// Bob's available balance after ApplyPending is exactly newAvailCt.
+	up := buildUnshieldProofs(t, k, ctx, bob, "uatom", &bobPk,
+		&unshieldCt, &newAvailCt, bobRemain, &bobRemainR, 64)
 
 	_, err = msgServer.Unshield(ctx, &types.MsgUnshield{
-		Sender:          bob,
-		Denom:           "uatom",
-		Amount:          fmt.Sprintf("%d", unshieldAmount),
-		Ciphertext:      unshieldCtBytes,
-		RangeProof:      unshieldRangeProofBytes,
-		DecryptionProof: unshieldDLEQ.Marshal(),
+		Sender:                   bob,
+		Denom:                    "uatom",
+		Amount:                   fmt.Sprintf("%d", unshieldAmount),
+		Ciphertext:               unshieldCtBytes,
+		RangeProof:               up.RangeProof,
+		DecryptionProof:          unshieldDLEQ.Marshal(),
+		RemainingCommitment:      up.RemainingCommitment,
+		RemainingCommitmentProof: up.RemainingCommitmentProof,
 	})
 	require.NoError(t, err, "Unshield should succeed")
 	t.Log("Unshield: OK")
@@ -992,7 +976,9 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	bankKeeper.fundAccount(alice, "uatom", 10000)
 
 	// Create client SDK instances.
-	aliceClient := clientSDKNew(&aliceSk, &alicePk, "test-chain-1")
+	aliceClient := confsdk.NewClient(&aliceSk, &alicePk, "test-chain-1")
+	// This test sends 200, below the client-side dust floor.
+	aliceClient.MinSendAmount = 0
 	_ = bobSk // used later for decrypt
 
 	// =========================================================================
@@ -1002,11 +988,13 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: alice,
 		Pubkey: elgamal.MarshalPublicKey(&alicePk),
+		Pop:    popFor(t, k, ctx, alice, &aliceSk, &alicePk),
 	})
 	require.NoError(t, err)
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: bob,
 		Pubkey: elgamal.MarshalPublicKey(&bobPk),
+		Pop:    popFor(t, k, ctx, bob, &bobSk, &bobPk),
 	})
 	require.NoError(t, err)
 
@@ -1020,7 +1008,7 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, aliceAvailBytes, "Available should be nil before first shield")
 
-	shieldResult, err := aliceClient.Shield(alice, "uatom", 500, aliceAvailBytes)
+	shieldResult, err := aliceClient.Shield(alice, "uatom", 500, aliceAvailBytes, 0)
 	require.NoError(t, err)
 
 	_, err = msgServer.Shield(ctx, &types.MsgShield{
@@ -1034,7 +1022,7 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	t.Log("  Shield accepted by on-chain keeper")
 
 	// Track state.
-	aliceState := &clientSDKBalanceState{}
+	aliceState := &confsdk.BalanceState{}
 	aliceState.AfterShield(500, &shieldResult.R)
 
 	// =========================================================================
@@ -1050,19 +1038,23 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	sendResult, err := aliceClient.Send(
 		alice, bob, "uatom", 200,
 		aliceState, aliceAvailBytes,
-		&bobPk, &auditorPk, 64,
+		&bobPk, &auditorPk, 64, 1,
 	)
 	require.NoError(t, err)
 
 	_, err = msgServer.ConfidentialSend(ctx, &types.MsgConfidentialSend{
-		Sender:         alice,
-		Receiver:       bob,
-		Denom:          "uatom",
-		SenderUpdate:   sendResult.SenderUpdate,
-		ReceiverUpdate: sendResult.ReceiverUpdate,
-		AuditorUpdate:  sendResult.AuditorUpdate,
-		RangeProof:     sendResult.RangeProof,
-		EqualityProof:  sendResult.EqualityProof,
+		Sender:                   alice,
+		Receiver:                 bob,
+		Denom:                    "uatom",
+		SenderUpdate:             sendResult.SenderUpdate,
+		ReceiverUpdate:           sendResult.ReceiverUpdate,
+		AuditorUpdate:            sendResult.AuditorUpdate,
+		RangeProof:               sendResult.RangeProof,
+		EqualityProof:            sendResult.EqualityProof,
+		TransferCommitment:       sendResult.TransferCommitment,
+		RemainingCommitment:      sendResult.RemainingCommitment,
+		TransferCommitmentProof:  sendResult.TransferCommitmentProof,
+		RemainingCommitmentProof: sendResult.RemainingCommitmentProof,
 	})
 	require.NoError(t, err)
 	t.Log("  Send accepted by on-chain keeper")
@@ -1081,7 +1073,8 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	// =========================================================================
 	t.Log("SDK E2E Step 4: Bob ApplyPending via SDK")
 
-	bobClient := clientSDKNew(&bobSk, &bobPk, "test-chain-1")
+	bobClient := confsdk.NewClient(&bobSk, &bobPk, "test-chain-1")
+	bobClient.MinSendAmount = 0
 	bobAvailBytes, err := k.GetAvailableBalance(ctx, bobAddr.Bytes(), "uatom")
 	require.NoError(t, err)
 	bobPendBytes, err := k.GetPendingBalance(ctx, bobAddr.Bytes(), "uatom")
@@ -1089,7 +1082,7 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	require.NotNil(t, bobPendBytes)
 
 	bsgsTable := elgamal.NewDecryptionTable(16)
-	applyResult, err := bobClient.ApplyPending(bob, "uatom", bobAvailBytes, bobPendBytes, bsgsTable)
+	applyResult, err := bobClient.ApplyPending(bob, "uatom", bobAvailBytes, bobPendBytes, bsgsTable, 0)
 	require.NoError(t, err)
 	require.Equal(t, uint64(200), applyResult.DecryptedAmount)
 
@@ -1110,16 +1103,18 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	aliceAvailBytes, err = k.GetAvailableBalance(ctx, aliceAddr.Bytes(), "uatom")
 	require.NoError(t, err)
 
-	unshieldResult, err := aliceClient.Unshield(alice, "uatom", 100, aliceState, aliceAvailBytes, 64)
+	unshieldResult, err := aliceClient.Unshield(alice, "uatom", 100, aliceState, aliceAvailBytes, 64, 2)
 	require.NoError(t, err)
 
 	_, err = msgServer.Unshield(ctx, &types.MsgUnshield{
-		Sender:          alice,
-		Denom:           "uatom",
-		Amount:          "100",
-		Ciphertext:      unshieldResult.Ciphertext,
-		RangeProof:      unshieldResult.RangeProof,
-		DecryptionProof: unshieldResult.DecryptionProof,
+		Sender:                   alice,
+		Denom:                    "uatom",
+		Amount:                   "100",
+		Ciphertext:               unshieldResult.Ciphertext,
+		RangeProof:               unshieldResult.RangeProof,
+		DecryptionProof:          unshieldResult.DecryptionProof,
+		RemainingCommitment:      unshieldResult.RemainingCommitment,
+		RemainingCommitmentProof: unshieldResult.RemainingCommitmentProof,
 	})
 	require.NoError(t, err)
 	t.Log("  Unshield accepted by on-chain keeper")
@@ -1129,196 +1124,6 @@ func TestClientSDK_EndToEnd(t *testing.T) {
 	require.Equal(t, sdkmath.NewInt(9600), bankKeeper.balances[alice]["uatom"])
 
 	t.Logf("PASSED: SDK E2E — shield(500) → send(200) → bob_apply(200) → unshield(100) — remaining: %d", aliceState.Value)
-}
-
-// ---------------------------------------------------------------------------
-// Thin wrappers around client/sdk types to avoid import cycle.
-// The integration test is in package keeper_test, and client/sdk imports
-// the elgamal/bulletproofs libraries. We re-implement the minimal client
-// logic here using the same HKDF derivation to prove compatibility.
-// ---------------------------------------------------------------------------
-
-func clientSDKDeriveR(sk *fr.Element, chainID, denom string, currentBalance []byte, opType string) fr.Element {
-	// Exact same HKDF derivation as client/sdk/randomness.go:DeriveRandomness
-	skBytes := sk.Bytes()
-	info := []byte(chainID + "/" + denom + "/" + opType)
-
-	h := hkdfNew(skBytes[:], currentBalance, info)
-
-	var buf [64]byte
-	if _, err := io.ReadFull(h, buf[:]); err != nil {
-		panic(fmt.Sprintf("hkdf read: %v", err))
-	}
-
-	var r fr.Element
-	var rBig = new(big.Int).SetBytes(buf[:])
-	r.SetBigInt(rBig)
-	return r
-}
-
-type clientSDKBalanceState struct {
-	Value           uint64
-	Randomness      fr.Element
-	RandomnessKnown bool
-}
-
-func (s *clientSDKBalanceState) AfterShield(amount uint64, r *fr.Element) {
-	s.Value += amount
-	s.Randomness.Add(&s.Randomness, r)
-	s.RandomnessKnown = true
-}
-func (s *clientSDKBalanceState) AfterSend(amount uint64, r *fr.Element) {
-	s.Value -= amount
-	s.Randomness.Sub(&s.Randomness, r)
-}
-func (s *clientSDKBalanceState) AfterUnshield(amount uint64, r *fr.Element) {
-	s.Value -= amount
-	s.Randomness.Sub(&s.Randomness, r)
-}
-
-type clientSDKClient struct {
-	sk      fr.Element
-	pk      bn254.G1Affine
-	chainID string
-}
-
-type elgamalG1Affine = bn254.G1Affine
-
-func clientSDKNew(sk *fr.Element, pk *elgamalG1Affine, chainID string) *clientSDKClient {
-	return &clientSDKClient{sk: *sk, pk: *pk, chainID: chainID}
-}
-
-func (c *clientSDKClient) buildTranscript(sender, receiver, denom string) *elgamal.Transcript {
-	t := elgamal.NewTranscript("x/confidential/v1")
-	t.AppendBytes("chain_id", []byte(c.chainID))
-	t.AppendBytes("sender", []byte(sender))
-	if receiver != "" {
-		t.AppendBytes("receiver", []byte(receiver))
-	}
-	t.AppendBytes("denom", []byte(denom))
-	return t
-}
-
-type sdkShieldResult struct {
-	Ciphertext []byte
-	Proof      []byte
-	R          fr.Element
-}
-
-func (c *clientSDKClient) Shield(sender, denom string, amount uint64, availBalance []byte) (*sdkShieldResult, error) {
-	r := clientSDKDeriveR(&c.sk, c.chainID, denom, availBalance, "shield")
-	ct, _, err := elgamal.EncryptWithRandomness(amount, &c.pk, &r)
-	if err != nil {
-		return nil, err
-	}
-	ctBytes := ct.Marshal()
-	transcript := c.buildTranscript(sender, "", denom)
-	proof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, transcript, nil)
-	if err != nil {
-		return nil, err
-	}
-	return &sdkShieldResult{Ciphertext: ctBytes, Proof: proof.Marshal(), R: r}, nil
-}
-
-type sdkSendResult struct {
-	SenderUpdate, ReceiverUpdate, AuditorUpdate []byte
-	EqualityProof, RangeProof                   []byte
-	RSender                                     fr.Element
-}
-
-func (c *clientSDKClient) Send(sender, receiver, denom string, amount uint64, state *clientSDKBalanceState, availBalance []byte, receiverPk, auditorPk *elgamalG1Affine, maxBits int) (*sdkSendResult, error) {
-	rS := clientSDKDeriveR(&c.sk, c.chainID, denom, availBalance, "send/sender")
-	rR := clientSDKDeriveR(&c.sk, c.chainID, denom, availBalance, "send/receiver")
-	rA := clientSDKDeriveR(&c.sk, c.chainID, denom, availBalance, "send/auditor")
-
-	sCt, _, _ := elgamal.EncryptWithRandomness(amount, &c.pk, &rS)
-	rCt, _, _ := elgamal.EncryptWithRandomness(amount, receiverPk, &rR)
-	aCt, _, _ := elgamal.EncryptWithRandomness(amount, auditorPk, &rA)
-
-	eqT := c.buildTranscript(sender, receiver, denom)
-	eqProof, err := elgamal.ProveEquality(amount, &rS, &rR, &rA, &c.pk, receiverPk, auditorPk, &sCt, &rCt, &aCt, eqT, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	remAmount := state.Value - amount
-	var remR fr.Element
-	remR.Sub(&state.Randomness, &rS)
-
-	rpT := c.buildTranscript(sender, receiver, denom)
-	rpProof, err := bulletproofs.AggregateRangeProve([]uint64{amount, remAmount}, []*fr.Element{&rS, &remR}, &c.pk, maxBits, rpT)
-	if err != nil {
-		return nil, err
-	}
-	rpBytes, _ := rpProof.Marshal()
-	sB := sCt.Marshal()
-	rB := rCt.Marshal()
-	aB := aCt.Marshal()
-	return &sdkSendResult{SenderUpdate: sB, ReceiverUpdate: rB, AuditorUpdate: aB, EqualityProof: eqProof.Marshal(), RangeProof: rpBytes, RSender: rS}, nil
-}
-
-type sdkApplyPendingResult struct {
-	NewAvailableUpdate []byte
-	Proof              []byte
-	RNew               fr.Element
-	DecryptedAmount    uint64
-}
-
-func (c *clientSDKClient) ApplyPending(sender, denom string, availBalance, pendBalance []byte, table *elgamal.DecryptionTable) (*sdkApplyPendingResult, error) {
-	var pendCt elgamal.Ciphertext
-	if err := pendCt.Unmarshal(pendBalance); err != nil {
-		return nil, err
-	}
-	pendingAmount, err := elgamal.Decrypt(&pendCt, &c.sk, table)
-	if err != nil {
-		return nil, err
-	}
-	rNew := clientSDKDeriveR(&c.sk, c.chainID, denom, availBalance, "apply_pending")
-	newCt, _, err := elgamal.EncryptWithRandomness(pendingAmount, &c.pk, &rNew)
-	if err != nil {
-		return nil, err
-	}
-	newCtBytes := newCt.Marshal()
-	transcript := c.buildTranscript(sender, "", denom)
-	proof, err := elgamal.ProveApplyPending(&c.sk, &c.pk, &pendCt, &newCt, pendingAmount, &rNew, transcript, nil)
-	if err != nil {
-		return nil, err
-	}
-	return &sdkApplyPendingResult{
-		NewAvailableUpdate: newCtBytes,
-		Proof:              proof.Marshal(),
-		RNew:               rNew,
-		DecryptedAmount:    pendingAmount,
-	}, nil
-}
-
-type sdkUnshieldResult struct {
-	Ciphertext, DecryptionProof, RangeProof []byte
-	R                                       fr.Element
-}
-
-func (c *clientSDKClient) Unshield(sender, denom string, amount uint64, state *clientSDKBalanceState, availBalance []byte, maxBits int) (*sdkUnshieldResult, error) {
-	r := clientSDKDeriveR(&c.sk, c.chainID, denom, availBalance, "unshield")
-	ct, _, _ := elgamal.EncryptWithRandomness(amount, &c.pk, &r)
-	ctBytes := ct.Marshal()
-
-	dleqT := c.buildTranscript(sender, "", denom)
-	dleqProof, err := elgamal.ProveDLEQ(&c.sk, &c.pk, &ct, amount, dleqT, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	remAmount := state.Value - amount
-	var remR fr.Element
-	remR.Sub(&state.Randomness, &r)
-
-	rpT := c.buildTranscript(sender, "", denom)
-	rpProof, err := bulletproofs.AggregateRangeProve([]uint64{remAmount}, []*fr.Element{&remR}, &c.pk, maxBits, rpT)
-	if err != nil {
-		return nil, err
-	}
-	rpBytes, _ := rpProof.Marshal()
-	return &sdkUnshieldResult{Ciphertext: ctBytes, DecryptionProof: dleqProof.Marshal(), RangeProof: rpBytes, R: r}, nil
 }
 
 // ---------------------------------------------------------------------------

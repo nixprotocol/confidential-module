@@ -8,6 +8,8 @@ import (
 
 	bulletproofs "github.com/nixprotocol/bulletproofs-bn254"
 	elgamal "github.com/nixprotocol/elgamal-bn254"
+
+	confidentialcrypto "github.com/nixprotocol/confidential-module/crypto"
 )
 
 // DefaultMinSendAmount is the minimum confidential send amount enforced
@@ -18,10 +20,10 @@ const DefaultMinSendAmount uint64 = 1000
 // Client provides confidential transaction operations using deterministic
 // randomness derived from the secret key and on-chain state.
 type Client struct {
-	sk             fr.Element
-	pk             bn254.G1Affine
-	chainID        string
-	MinSendAmount  uint64 // minimum send amount; defaults to DefaultMinSendAmount
+	sk            fr.Element
+	pk            bn254.G1Affine
+	chainID       string
+	MinSendAmount uint64 // minimum send amount; defaults to DefaultMinSendAmount
 }
 
 // NewClient creates a new confidential client.
@@ -37,6 +39,16 @@ func NewClient(sk *fr.Element, pk *bn254.G1Affine, chainID string) *Client {
 // PublicKey returns the client's ElGamal public key bytes (64 bytes).
 func (c *Client) PublicKey() []byte {
 	return elgamal.MarshalPublicKey(&c.pk)
+}
+
+// RegisterKeyProof produces the proof of possession required by
+// MsgRegisterKey, bound to the registering address.
+func (c *Client) RegisterKeyProof(sender string) ([]byte, error) {
+	proof, err := elgamal.ProvePossession(&c.sk, &c.pk, c.buildTranscript(sender, "", ""), nil)
+	if err != nil {
+		return nil, fmt.Errorf("prove possession: %w", err)
+	}
+	return proof.Marshal(), nil
 }
 
 // buildTranscript creates a Fiat-Shamir transcript matching the on-chain
@@ -61,8 +73,11 @@ type ShieldResult struct {
 
 // Shield creates a shield transaction: encrypts amount under the client's
 // public key with deterministic randomness and produces a DLEQ proof.
-func (c *Client) Shield(sender, denom string, amount uint64, currentAvailBalance []byte) (*ShieldResult, error) {
-	r, err := DeriveRandomness(&c.sk, c.chainID, denom, currentAvailBalance, OpShield)
+func (c *Client) Shield(sender, denom string, amount uint64, currentAvailBalance []byte, nonce uint64) (*ShieldResult, error) {
+	r, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpShield,
+		Sequence: nonce, Amount: amount, Receiver: "",
+	})
 	if err != nil {
 		return nil, fmt.Errorf("derive randomness: %w", err)
 	}
@@ -94,7 +109,15 @@ type SendResult struct {
 	AuditorUpdate  []byte // 128-byte auditor ciphertext
 	EqualityProof  []byte
 	RangeProof     []byte
-	RSender        fr.Element
+
+	// Binding Pedersen commitments the range proof is taken over, plus the
+	// proofs tying each to its ciphertext.
+	TransferCommitment       []byte // 64 bytes
+	RemainingCommitment      []byte // 64 bytes
+	TransferCommitmentProof  []byte // 288 bytes
+	RemainingCommitmentProof []byte // 288 bytes
+
+	RSender fr.Element
 }
 
 // Send creates a confidential send transaction. The caller must provide the
@@ -107,6 +130,7 @@ func (c *Client) Send(
 	currentAvailBalance []byte,
 	receiverPk, auditorPk *bn254.G1Affine,
 	maxBits int,
+	nonce uint64,
 ) (*SendResult, error) {
 	if receiverPk == nil {
 		return nil, fmt.Errorf("receiverPk is nil")
@@ -125,15 +149,24 @@ func (c *Client) Send(
 	}
 
 	// Derive three independent randomness values.
-	rSender, err := DeriveRandomness(&c.sk, c.chainID, denom, currentAvailBalance, OpSendSender)
+	rSender, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpSendSender,
+		Sequence: nonce, Amount: amount, Receiver: receiver,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("derive sender r: %w", err)
 	}
-	rReceiver, err := DeriveRandomness(&c.sk, c.chainID, denom, currentAvailBalance, OpSendReceiver)
+	rReceiver, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpSendReceiver,
+		Sequence: nonce, Amount: amount, Receiver: receiver,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("derive receiver r: %w", err)
 	}
-	rAuditor, err := DeriveRandomness(&c.sk, c.chainID, denom, currentAvailBalance, OpSendAuditor)
+	rAuditor, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpSendAuditor,
+		Sequence: nonce, Amount: amount, Receiver: receiver,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("derive auditor r: %w", err)
 	}
@@ -166,16 +199,57 @@ func (c *Client) Send(
 		return nil, fmt.Errorf("prove equality: %w", err)
 	}
 
-	// Range proof: transfer amount >= 0 AND remaining balance >= 0.
 	remainingAmount := state.Value - amount
 	var remainingR fr.Element
 	remainingR.Sub(&state.Randomness, &rSender)
 
+	// Binding Pedersen commitments for the range proof, each tied back to the
+	// ciphertext it describes. The range proof cannot be taken over the
+	// ciphertexts: their C2 is blinded by the sender's own public key, whose
+	// discrete log the sender knows, so C2 can be re-opened to any value.
+	sTransfer, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpSendTransferBlinding,
+		Sequence: nonce, Amount: amount, Receiver: receiver,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("derive transfer blinding: %w", err)
+	}
+	sRemaining, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpSendRemainingBlinding,
+		Sequence: nonce, Amount: amount, Receiver: receiver,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("derive remaining blinding: %w", err)
+	}
+
+	transferCommitment, transferProof, err := confidentialcrypto.ProveCommitment(
+		amount, &rSender, &sTransfer, &c.pk, &senderCt,
+		confidentialcrypto.RoleTransfer, c.buildTranscript(sender, receiver, denom), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// The chain derives the remaining-balance ciphertext as available - senderCt,
+	// so the client must bind its commitment to exactly that.
+	availCt, err := unmarshalAvailable(currentAvailBalance)
+	if err != nil {
+		return nil, fmt.Errorf("parse available balance: %w", err)
+	}
+	remainingCt := elgamal.Sub(availCt, &senderCt)
+
+	remainingCommitment, remainingProof, err := confidentialcrypto.ProveCommitment(
+		remainingAmount, &remainingR, &sRemaining, &c.pk, &remainingCt,
+		confidentialcrypto.RoleRemaining, c.buildTranscript(sender, receiver, denom), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Range proof over the binding commitments.
 	rangeTranscript := c.buildTranscript(sender, receiver, denom)
 	aggProof, err := bulletproofs.AggregateRangeProve(
 		[]uint64{amount, remainingAmount},
-		[]*fr.Element{&rSender, &remainingR},
-		&c.pk, // H base = sender's pk
+		[]*fr.Element{&sTransfer, &sRemaining},
+		confidentialcrypto.BlindingBase(),
 		maxBits,
 		rangeTranscript,
 	)
@@ -192,13 +266,30 @@ func (c *Client) Send(
 	auditorCtBytes := auditorCt.Marshal()
 
 	return &SendResult{
-		SenderUpdate:   senderCtBytes,
-		ReceiverUpdate: receiverCtBytes,
-		AuditorUpdate:  auditorCtBytes,
-		EqualityProof:  eqProof.Marshal(),
-		RangeProof:     rangeProofBytes,
-		RSender:        rSender,
+		SenderUpdate:             senderCtBytes,
+		ReceiverUpdate:           receiverCtBytes,
+		AuditorUpdate:            auditorCtBytes,
+		EqualityProof:            eqProof.Marshal(),
+		RangeProof:               rangeProofBytes,
+		TransferCommitment:       transferCommitment,
+		RemainingCommitment:      remainingCommitment,
+		TransferCommitmentProof:  transferProof,
+		RemainingCommitmentProof: remainingProof,
+		RSender:                  rSender,
 	}, nil
+}
+
+// unmarshalAvailable parses a stored available-balance ciphertext, treating
+// nil/empty as the identity ciphertext exactly as the keeper does.
+func unmarshalAvailable(data []byte) (*elgamal.Ciphertext, error) {
+	var ct elgamal.Ciphertext
+	if len(data) == 0 {
+		return &ct, nil
+	}
+	if err := ct.Unmarshal(data); err != nil {
+		return nil, err
+	}
+	return &ct, nil
 }
 
 // ApplyPendingResult contains the outputs of an ApplyPending operation.
@@ -218,6 +309,7 @@ func (c *Client) ApplyPending(
 	sender, denom string,
 	currentAvailBalance, currentPendBalance []byte,
 	decryptionTable elgamal.Decryptor,
+	nonce uint64,
 ) (*ApplyPendingResult, error) {
 	// Unmarshal pending ciphertext.
 	var pendCt elgamal.Ciphertext
@@ -232,7 +324,17 @@ func (c *Client) ApplyPending(
 	}
 
 	// Derive randomness for re-encryption.
-	rNew, err := DeriveRandomness(&c.sk, c.chainID, denom, currentAvailBalance, OpApplyPending)
+	//
+	// Amount must be the pending total being re-encrypted, not 0. The salt is
+	// the *available* balance, which an incoming transfer does not change —
+	// incoming funds land in pending. Without binding the pending amount, two
+	// ApplyPending attempts straddling an incoming transfer (a retry, two tabs)
+	// would share rNew while encrypting different values, and the difference of
+	// the two ciphertexts would hand any observer the incoming amount.
+	rNew, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpApplyPending,
+		Sequence: nonce, Amount: pendingAmount, Receiver: "",
+	})
 	if err != nil {
 		return nil, fmt.Errorf("derive randomness: %w", err)
 	}
@@ -265,7 +367,13 @@ type UnshieldResult struct {
 	Ciphertext      []byte // 128-byte encrypted amount
 	DecryptionProof []byte // DLEQ proof bytes
 	RangeProof      []byte // range proof for remaining balance >= 0
-	R               fr.Element
+
+	// Binding Pedersen commitment the range proof is taken over, plus the proof
+	// tying it to (available - ciphertext).
+	RemainingCommitment      []byte // 64 bytes
+	RemainingCommitmentProof []byte // 288 bytes
+
+	R fr.Element
 }
 
 // Unshield creates an unshield transaction: encrypts the withdrawal amount,
@@ -277,6 +385,7 @@ func (c *Client) Unshield(
 	state *BalanceState,
 	currentAvailBalance []byte,
 	maxBits int,
+	nonce uint64,
 ) (*UnshieldResult, error) {
 	if !state.RandomnessKnown {
 		return nil, fmt.Errorf("randomness unknown: recover state via ApplyPending or Shield first")
@@ -285,7 +394,10 @@ func (c *Client) Unshield(
 		return nil, fmt.Errorf("insufficient balance: have %d, withdrawing %d", state.Value, amount)
 	}
 
-	r, err := DeriveRandomness(&c.sk, c.chainID, denom, currentAvailBalance, OpUnshield)
+	r, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpUnshield,
+		Sequence: nonce, Amount: amount, Receiver: "",
+	})
 	if err != nil {
 		return nil, fmt.Errorf("derive randomness: %w", err)
 	}
@@ -304,17 +416,39 @@ func (c *Client) Unshield(
 		return nil, fmt.Errorf("prove DLEQ: %w", err)
 	}
 
-	// Range proof: remaining balance >= 0.
 	remainingAmount := state.Value - amount
 	var remainingR fr.Element
 	remainingR.Sub(&state.Randomness, &r)
 
-	// Remaining balance commitment is C2 of (avail - ct).
+	// Binding Pedersen commitment for the remaining balance, tied to the
+	// (avail - ct) ciphertext the chain derives. See Send for why the range
+	// proof cannot use the ciphertext directly.
+	sRemaining, err := DeriveRandomness(&c.sk, currentAvailBalance, DerivationContext{
+		ChainID: c.chainID, Denom: denom, Op: OpUnshieldRemainingBlinding,
+		Sequence: nonce, Amount: amount, Receiver: "",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("derive remaining blinding: %w", err)
+	}
+
+	availCt, err := unmarshalAvailable(currentAvailBalance)
+	if err != nil {
+		return nil, fmt.Errorf("parse available balance: %w", err)
+	}
+	remainingCt := elgamal.Sub(availCt, &ct)
+
+	remainingCommitment, remainingProof, err := confidentialcrypto.ProveCommitment(
+		remainingAmount, &remainingR, &sRemaining, &c.pk, &remainingCt,
+		confidentialcrypto.RoleRemaining, c.buildTranscript(sender, "", denom), nil)
+	if err != nil {
+		return nil, err
+	}
+
 	rangeTranscript := c.buildTranscript(sender, "", denom)
 	aggProof, err := bulletproofs.AggregateRangeProve(
 		[]uint64{remainingAmount},
-		[]*fr.Element{&remainingR},
-		&c.pk,
+		[]*fr.Element{&sRemaining},
+		confidentialcrypto.BlindingBase(),
 		maxBits,
 		rangeTranscript,
 	)
@@ -327,10 +461,12 @@ func (c *Client) Unshield(
 	}
 
 	return &UnshieldResult{
-		Ciphertext:      ctBytes,
-		DecryptionProof: dleqProof.Marshal(),
-		RangeProof:      rangeProofBytes,
-		R:               r,
+		Ciphertext:               ctBytes,
+		DecryptionProof:          dleqProof.Marshal(),
+		RangeProof:               rangeProofBytes,
+		RemainingCommitment:      remainingCommitment,
+		RemainingCommitmentProof: remainingProof,
+		R:                        r,
 	}, nil
 }
 

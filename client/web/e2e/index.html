@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>nix wasm e2e</title></head>
+<body><pre id="out">loading…</pre>
+<script src="wasm_exec.js"></script>
+<script>
+window.wasmReady = (async () => {
+  const go = new Go();
+  const res = await WebAssembly.instantiateStreaming(fetch('crypto.wasm'), go.importObject);
+  go.run(res.instance);
+  document.getElementById('out').textContent = 'wasm ready';
+  return true;
+})();
+</script>
+</body></html>

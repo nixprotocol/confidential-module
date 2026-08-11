@@ -16,6 +16,7 @@ import (
 	bulletproofs "github.com/nixprotocol/bulletproofs-bn254"
 	elgamal "github.com/nixprotocol/elgamal-bn254"
 
+	confidentialcrypto "github.com/nixprotocol/confidential-module/crypto"
 	"github.com/nixprotocol/confidential-module/types"
 )
 
@@ -23,18 +24,52 @@ import (
 // These should be tuned per-chain based on validator hardware. The ratio between
 // operations should remain approximately the same across platforms.
 //
-// Reference latencies (M1 Pro, arm64):
-//   DLEQ verify:           ~200μs
-//   ApplyPending verify:   ~505μs
-//   Equality verify:       ~770μs
-//   Range verify (64-bit): ~5.2ms
-//   Aggregate range (2×64):~9.1ms
+// Measured verification cost, and the resulting gas-per-microsecond. Reproduce
+// with `go test -bench Verify` in elgamal-bn254 and bulletproofs-bn254.
+// (darwin/arm64, 2026-08; absolute numbers move with hardware, the RATIOS are
+// what the pricing depends on.)
+//
+//	proof                       verify      gas      gas/μs
+//	DLEQ                         257μs    50,000        194
+//	Equality (3-key)             757μs   100,000        132
+//	ApplyPending                 493μs    70,000        142
+//	CommitmentEquality           350μs    70,000        200
+//	Possession (PoP)              92μs    30,000        325
+//	Aggregate range (2×64-bit) 9,138μs   406,000         44
+//
+// The aggregate range proof is priced 3-7x cheaper per microsecond than every
+// Schnorr proof here, so it is the cheapest way to buy validator CPU. It is not
+// independently exploitable — a range proof cannot be submitted on its own, it
+// rides inside a ConfidentialSend or Unshield that also pays for the other
+// proofs, and generating one costs the attacker far more than verifying it
+// costs a validator. It should still be recalibrated before mainnet: at the
+// ~140 gas/μs the Schnorr proofs sit at, the 2×64 case would price near
+// 1,280,000 rather than 406,000.
+//
+// A ConfidentialSend verifies equality + 2x commitment-equality + one 2×64
+// aggregate range proof: ~10.6ms for 646,000 gas, of which the range proof is
+// 86% of the time but 63% of the gas.
 const (
-	GasDLEQVerify          = 50_000
-	GasEqualityVerify      = 100_000
-	GasAggregateRangeBase  = 150_000 // base cost for aggregate range proof
-	GasAggregateRangePerBit = 2_000  // additional cost per bit of range
-	GasApplyPendingVerify = 70_000
+	GasDLEQVerify           = 50_000
+	GasEqualityVerify       = 100_000
+	GasAggregateRangeBase   = 150_000 // base cost for aggregate range proof
+	GasAggregateRangePerBit = 2_000   // additional cost per bit of range
+	GasApplyPendingVerify   = 70_000
+	// GasCommitmentEqualityVerify: 3-equation Schnorr, measured 350μs. Priced at
+	// 200 gas/μs, slightly above the 132-194 cluster — deliberately on the
+	// expensive side, since underpricing is the direction that hurts.
+	GasCommitmentEqualityVerify = 70_000
+	// GasPopVerify: single-equation Schnorr, measured 92μs. Conservative at
+	// 325 gas/μs, and charged once per account for the life of the account.
+	GasPopVerify = 30_000
+)
+
+// Roles distinguish the commitment-equality proofs inside a single message, so
+// a proof for one slot cannot be replayed into the other. Shared with the
+// clients so both sides derive the same transcript.
+const (
+	commitmentRoleTransfer  = confidentialcrypto.RoleTransfer
+	commitmentRoleRemaining = confidentialcrypto.RoleRemaining
 )
 
 // buildTranscript creates a Fiat-Shamir transcript with chain context per spec Section 4.2.2.
@@ -102,6 +137,94 @@ func (k Keeper) verifyAggregateRange(ctx context.Context, proofBytes []byte, com
 	transcript := k.buildTranscript(ctx, sender, receiver, denom)
 	if !bulletproofs.AggregateRangeVerify(commitments, &proof, Hbase, n, transcript) {
 		return types.ErrInvalidProof.Wrap("proof verification failed")
+	}
+	return nil
+}
+
+// RangeProofBlindingBase returns the generator that range proof commitments are
+// blinded with. See confidentialcrypto.BlindingBase for why it must never be an
+// account public key.
+func RangeProofBlindingBase() *bn254.G1Affine {
+	return confidentialcrypto.BlindingBase()
+}
+
+// unmarshalCommitment parses 64 bytes into a Pedersen commitment point and
+// rejects degenerate and non-canonical values.
+//
+// The length check alone is not enough. gnark reads the encoding format from
+// the top two bits of the first byte, so a compressed encoding consumes only
+// the 32-byte X coordinate, derives Y, and silently ignores the trailing 32
+// bytes of this fixed-width slot. Distinct byte strings then decode to the same
+// commitment (pick the flag matching Y's branch, fill the tail freely), and the
+// other branch yields a different valid point from the same X.
+//
+// Transaction signatures cover these bytes and the account sequence prevents
+// replay, so this was transaction malleability rather than theft — but a
+// commitment is a consensus artifact and should have exactly one wire form.
+func unmarshalCommitment(data []byte) (bn254.G1Affine, error) {
+	var p bn254.G1Affine
+	if len(data) != 64 {
+		return p, fmt.Errorf("commitment must be 64 bytes, got %d", len(data))
+	}
+	if data[0]&(0b11<<6) != 0 {
+		return p, fmt.Errorf("commitment must use the uncompressed 64-byte encoding")
+	}
+	if err := p.Unmarshal(data); err != nil {
+		return p, err
+	}
+	if !p.IsOnCurve() {
+		return p, fmt.Errorf("commitment is not on the curve")
+	}
+	if p.IsInfinity() {
+		return p, fmt.Errorf("commitment is the identity point")
+	}
+	return p, nil
+}
+
+// verifyCommitmentEquality deserializes and verifies the proof that a Pedersen
+// commitment and an ElGamal ciphertext hide the same value.
+//
+// This is what makes the range proofs meaningful. The range proof runs over the
+// commitment (blinded by a NUMS base, so binding); this proof is what forces
+// the committed value to be the value actually encrypted in the ciphertext.
+func (k Keeper) verifyCommitmentEquality(
+	ctx context.Context,
+	proofBytes []byte,
+	pk *bn254.G1Affine,
+	ct *elgamal.Ciphertext,
+	commitment *bn254.G1Affine,
+	role, sender, receiver, denom string,
+) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.GasMeter().ConsumeGas(GasCommitmentEqualityVerify, "commitment equality proof verification")
+
+	var proof elgamal.CommitmentEqualityProof
+	if err := proof.Unmarshal(proofBytes); err != nil {
+		return types.ErrInvalidProof.Wrap("invalid commitment equality proof format")
+	}
+
+	transcript := k.buildTranscript(ctx, sender, receiver, denom)
+	confidentialcrypto.AppendRole(transcript, role)
+
+	if !elgamal.VerifyCommitmentEquality(&proof, pk, RangeProofBlindingBase(), ct, commitment, transcript) {
+		return types.ErrInvalidProof.Wrapf("commitment equality proof verification failed (%s)", role)
+	}
+	return nil
+}
+
+// verifyPossession deserializes and verifies a proof of possession for a public
+// key being registered. The transcript binds the registering address, so a
+// proof observed on-chain cannot be replayed by a different account.
+func (k Keeper) verifyPossession(ctx context.Context, proofBytes []byte, pk *bn254.G1Affine, sender string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.GasMeter().ConsumeGas(GasPopVerify, "proof of possession verification")
+
+	var proof elgamal.PopProof
+	if err := proof.Unmarshal(proofBytes); err != nil {
+		return types.ErrInvalidProof.Wrap("invalid proof of possession format")
+	}
+	if !elgamal.VerifyPossession(&proof, pk, k.buildTranscript(ctx, sender, "", "")) {
+		return types.ErrInvalidProof.Wrap("proof of possession verification failed")
 	}
 	return nil
 }

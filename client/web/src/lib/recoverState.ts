@@ -1,6 +1,32 @@
 // src/lib/recoverState.ts
-// Recovers wallet state (amount + randomness) by replaying chain events.
-// This is needed when local state is lost or desynchronized.
+//
+// UNSUPPORTED: recovering randomness by replaying chain events no longer works.
+//
+// This module rebuilt wallet state by re-deriving each operation's randomness
+// from (sk, availableBalance, chainId, denom, opType). That is no longer
+// possible, and the reason is fundamental rather than a porting gap.
+//
+// Randomness derivation now binds the transaction's own content — amount,
+// receiver and account sequence — because deriving from the balance snapshot
+// alone meant two transactions built from the same snapshot (a retry at a
+// different amount, two open tabs) reused the same r, and two ElGamal
+// ciphertexts sharing r publicly leak the difference of their plaintexts.
+//
+// The consequence is that blind re-derivation needs inputs the chain does not
+// expose:
+//
+//   shield / unshield  amount is public, but the account sequence is not
+//   confidential_send  the amount is confidential by design
+//   apply_pending      the pending total is confidential by design
+//
+// So this path cannot be repaired by matching the encoding. Use the memo-based
+// path in syncFromChain.ts instead: encrypted memos carry the exact randomness,
+// so recovery reads it rather than guessing it.
+//
+// Previously this failed SILENTLY — it produced plausible-looking but wrong
+// randomness, persisted it as availableRandomness, and the resulting
+// remaining-commitment proofs were rejected on-chain, leaving the balance
+// unspendable through the wallet until a real recovery ran. It now fails loudly.
 
 import type { Tendermint37Client } from '@cosmjs/tendermint-rpc';
 import { toHex, fromHex } from '@cosmjs/encoding';
@@ -41,8 +67,20 @@ async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Pr
   return output.slice(0, length);
 }
 
-// Derive deterministic randomness — matches Go WASM's deriveRandomness exactly
+// Derive deterministic randomness.
+//
+// This no longer matches the Go implementations and cannot be made to — see the
+// note at the top of this file. It is kept only so the shape of the old
+// algorithm is legible; calling it throws rather than returning a wrong value.
 async function deriveRandomness(skHex: string, chainId: string, denom: string, availBalanceHex: string, opType: string): Promise<string> {
+  throw new Error(
+    `recoverState: cannot re-derive randomness for "${opType}". Randomness now ` +
+    `binds the transaction's amount, receiver and account sequence, which are ` +
+    `not all recoverable from chain events. Recover via encrypted memos ` +
+    `(syncFromChain) instead.`,
+  );
+
+  // eslint-disable-next-line no-unreachable
   const skBytes = fromHex(skHex);
   const salt = availBalanceHex ? fromHex(availBalanceHex) : new Uint8Array(0);
   const infoStr = `${chainId}/${denom}/${opType}`;

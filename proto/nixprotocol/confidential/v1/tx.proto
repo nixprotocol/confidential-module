@@ -21,6 +21,12 @@ message MsgRegisterKey {
   string sender = 1;
   bytes pubkey = 2;
   reserved 3; // was: counter (removed — keys are deterministic)
+
+  // Schnorr proof of possession of the secret key behind pubkey, bound to
+  // sender. Without it an account can register a key it does not control (for
+  // instance by copying another account's key), permanently stranding anything
+  // later sent to it.
+  bytes pop = 4;
 }
 message MsgRegisterKeyResponse {}
 
@@ -48,6 +54,19 @@ message MsgConfidentialSend {
   reserved 9; // was: receiver_key_counter (removed — no key rotation)
   bytes encrypted_memo = 10;
   bytes auditor_memo = 11;
+
+  // Pedersen commitments the range proof is actually taken over, each of the
+  // form v*G + s*H with H a fixed nothing-up-my-sleeve generator.
+  //
+  // The range proof cannot be taken over the ElGamal ciphertexts directly:
+  // their C2 = v*G + r*pk uses the sender's own public key as the blinding
+  // base, and the sender knows its discrete log, so C2 is not binding and can
+  // be re-opened to any value. These commitments are binding, and the
+  // *_commitment_proof fields tie each one back to its ciphertext.
+  bytes transfer_commitment = 12;        // commits to the transfer amount
+  bytes remaining_commitment = 13;       // commits to the sender's balance after the transfer
+  bytes transfer_commitment_proof = 14;  // transfer_commitment <-> sender_update
+  bytes remaining_commitment_proof = 15; // remaining_commitment <-> (available - sender_update)
 }
 message MsgConfidentialSendResponse {}
 
@@ -70,6 +89,13 @@ message MsgUnshield {
   bytes range_proof = 5;
   bytes decryption_proof = 6;
   bytes encrypted_memo = 7;
+
+  // Binding Pedersen commitment to the balance left after this withdrawal,
+  // and the proof tying it to (available - ciphertext). See the comment on
+  // MsgConfidentialSend for why the range proof cannot use the ciphertext
+  // directly.
+  bytes remaining_commitment = 8;
+  bytes remaining_commitment_proof = 9;
 }
 message MsgUnshieldResponse {}
 

@@ -62,6 +62,29 @@ function ensureBSGS(halfBits) {
 }
 
 // 6. Message handler
+
+// The account sequence number is a required nonce for randomness derivation.
+// Without it, two transactions built from the same balance snapshot (a retry at
+// a different amount, two open tabs) would reuse the same ElGamal randomness,
+// which publicly leaks the difference between the two amounts. Fail loudly
+// rather than silently defaulting.
+// The range-proof bit width must match the chain's params.max_transfer_bits.
+// Defaulting it here would silently produce proofs the chain rejects on any
+// deployment that lowered the parameter.
+function requireMaxBits(msg) {
+  if (!msg.maxBits) {
+    throw new Error('maxBits is required for this operation');
+  }
+  return Number(msg.maxBits);
+}
+
+function requireSequence(msg) {
+  if (msg.accountSequence === undefined || msg.accountSequence === null) {
+    throw new Error('accountSequence is required for this operation');
+  }
+  return Number(msg.accountSequence);
+}
+
 self.onmessage = async function(e) {
   const msg = e.data;
   const id = msg.id;
@@ -82,24 +105,30 @@ self.onmessage = async function(e) {
         result = wasmDeriveKey(msg.seedHex, msg.counter);
         break;
 
+      case 'registerKeyProof':
+        result = wasmRegisterKeyProof(msg.skHex, msg.pkHex, msg.chainId, msg.sender);
+        break;
+
       case 'shield':
-        result = wasmShield(msg.skHex, msg.pkHex, msg.amount, msg.chainId, msg.sender, msg.denom, msg.availBalanceHex || '');
+        result = wasmShield(msg.skHex, msg.pkHex, String(msg.amount), msg.chainId, msg.sender, msg.denom, msg.availBalanceHex || '', requireSequence(msg));
         break;
 
       case 'send':
         result = wasmSend(msg.skHex, msg.senderPkHex, msg.receiverPkHex, msg.auditorPkHex,
-          msg.amount, msg.availAmount, msg.availRandomnessHex,
-          msg.chainId, msg.sender, msg.receiver, msg.denom, msg.availBalanceHex || '');
+          String(msg.amount), String(msg.availAmount), msg.availRandomnessHex,
+          msg.chainId, msg.sender, msg.receiver, msg.denom, msg.availBalanceHex || '',
+          requireSequence(msg), requireMaxBits(msg));
         break;
 
       case 'applyPending':
-        result = wasmApplyPending(msg.skHex, msg.pkHex, msg.pendingCtHex, msg.pendingAmount,
-          msg.chainId, msg.sender, msg.denom, msg.availBalanceHex || '');
+        result = wasmApplyPending(msg.skHex, msg.pkHex, msg.pendingCtHex, String(msg.pendingAmount),
+          msg.chainId, msg.sender, msg.denom, msg.availBalanceHex || '', requireSequence(msg));
         break;
 
       case 'unshield':
-        result = wasmUnshield(msg.skHex, msg.pkHex, msg.amount, msg.availAmount, msg.availRandomnessHex,
-          msg.chainId, msg.sender, msg.denom, msg.availBalanceHex || '');
+        result = wasmUnshield(msg.skHex, msg.pkHex, String(msg.amount), String(msg.availAmount), msg.availRandomnessHex,
+          msg.chainId, msg.sender, msg.denom, msg.availBalanceHex || '',
+          requireSequence(msg), requireMaxBits(msg));
         break;
 
       case 'decrypt':

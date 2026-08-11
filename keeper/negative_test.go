@@ -31,11 +31,13 @@ func defaultParams(auditorPk []byte) types.Params {
 
 // registerAccount is a convenience that registers a valid key for addr with the
 // given public key. It assumes params (with auditor + enabled denoms) are already set.
-func registerAccount(t *testing.T, msgServer types.MsgServer, ctx sdk.Context, addr string, pk []byte) {
+func registerAccount(t *testing.T, msgServer types.MsgServer, k keeper.Keeper, ctx sdk.Context,
+	addr string, sk *fr.Element, pk *bn254.G1Affine) {
 	t.Helper()
 	_, err := msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: addr,
-		Pubkey: pk,
+		Pubkey: elgamal.MarshalPublicKey(pk),
+		Pop:    popFor(t, k, ctx, addr, sk, pk),
 	})
 	require.NoError(t, err)
 }
@@ -51,7 +53,7 @@ func shieldAccount(
 	pk bn254.G1Affine,
 	addr string,
 	amount uint64,
-) {
+) fr.Element {
 	t.Helper()
 
 	var r fr.Element
@@ -75,6 +77,7 @@ func shieldAccount(
 		Proof:      proofBytes,
 	})
 	require.NoError(t, err)
+	return r
 }
 
 // ===========================================================================
@@ -123,7 +126,7 @@ func TestRegisterKey_AlreadyRegistered(t *testing.T) {
 	k, _, ctx := setupTestKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	_, alicePk, err := elgamal.KeyGen(rand.Reader)
+	aliceSk, alicePk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
@@ -133,12 +136,13 @@ func TestRegisterKey_AlreadyRegistered(t *testing.T) {
 	pkBytes := elgamal.MarshalPublicKey(&alicePk)
 
 	// First registration succeeds.
-	registerAccount(t, msgServer, ctx, alice, pkBytes)
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
 
 	// Second registration should fail.
 	_, err = msgServer.RegisterKey(ctx, &types.MsgRegisterKey{
 		Sender: alice,
 		Pubkey: pkBytes,
+		Pop:    popFor(t, k, ctx, alice, &aliceSk, &alicePk),
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrKeyAlreadyRegistered)
@@ -174,14 +178,14 @@ func TestShield_ZeroAmount(t *testing.T) {
 	k, _, ctx := setupTestKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	_, alicePk, err := elgamal.KeyGen(rand.Reader)
+	aliceSk, alicePk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	require.NoError(t, k.SetParams(ctx, defaultParams(elgamal.MarshalPublicKey(&auditorPk))))
 
 	alice := sdk.AccAddress([]byte("alice_______________")).String()
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
 
 	_, err = msgServer.Shield(ctx, &types.MsgShield{
 		Sender:     alice,
@@ -207,7 +211,7 @@ func TestShield_InvalidProof(t *testing.T) {
 	aliceAddr := sdk.AccAddress([]byte("alice_______________"))
 	alice := aliceAddr.String()
 	bankKeeper.fundAccount(alice, "uatom", 10000)
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
 
 	// Create a valid ciphertext for amount=1000, but generate proof with wrong amount=500.
 	var r fr.Element
@@ -253,7 +257,7 @@ func TestSend_ReceiverNotRegistered(t *testing.T) {
 	alice := aliceAddr.String()
 	bob := sdk.AccAddress([]byte("bob_________________")).String()
 	bankKeeper.fundAccount(alice, "uatom", 10000)
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
 
 	// Shield first so Alice has balance.
 	shieldAccount(t, k, msgServer, ctx, aliceSk, alicePk, alice, 1000)
@@ -279,7 +283,7 @@ func TestSend_InvalidEqualityProof(t *testing.T) {
 
 	aliceSk, alicePk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
-	_, bobPk, err := elgamal.KeyGen(rand.Reader)
+	bobSk, bobPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
@@ -289,8 +293,8 @@ func TestSend_InvalidEqualityProof(t *testing.T) {
 	alice := aliceAddr.String()
 	bob := sdk.AccAddress([]byte("bob_________________")).String()
 	bankKeeper.fundAccount(alice, "uatom", 10000)
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
-	registerAccount(t, msgServer, ctx, bob, elgamal.MarshalPublicKey(&bobPk))
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
+	registerAccount(t, msgServer, k, ctx, bob, &bobSk, &bobPk)
 
 	shieldAccount(t, k, msgServer, ctx, aliceSk, alicePk, alice, 1000)
 
@@ -369,14 +373,14 @@ func TestApplyPending_NothingPending(t *testing.T) {
 	k, _, ctx := setupTestKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	_, alicePk, err := elgamal.KeyGen(rand.Reader)
+	aliceSk, alicePk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	require.NoError(t, k.SetParams(ctx, defaultParams(elgamal.MarshalPublicKey(&auditorPk))))
 
 	alice := sdk.AccAddress([]byte("alice_______________")).String()
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
 
 	// ApplyPending when PendingIsZero is true (just registered, nothing received).
 	_, err = msgServer.ApplyPending(ctx, &types.MsgApplyPending{
@@ -426,36 +430,47 @@ func TestUnshield_ExceedsBalance(t *testing.T) {
 	aliceAddr := sdk.AccAddress([]byte("alice_______________"))
 	alice := aliceAddr.String()
 	bankKeeper.fundAccount(alice, "uatom", 10000)
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
 
 	// Shield 100.
-	shieldAccount(t, k, msgServer, ctx, aliceSk, alicePk, alice, 100)
+	shieldR := shieldAccount(t, k, msgServer, ctx, aliceSk, alicePk, alice, 100)
+	availCt, _, err := elgamal.EncryptWithRandomness(100, &alicePk, &shieldR)
+	require.NoError(t, err)
 
-	// Try to unshield 500 (more than available). Use a random DLEQ proof for 500 —
-	// the DLEQ or range proof verification should fail.
+	// Try to unshield 500 with only 100 available. Everything except the
+	// remaining balance is honest: the ciphertext really does encrypt 500 and
+	// the DLEQ proof is valid.
 	var r fr.Element
 	_, _ = r.SetRandom()
 	ct, _, err := elgamal.EncryptWithRandomness(500, &alicePk, &r)
 	require.NoError(t, err)
 	ctBytes := ct.Marshal()
 
-	// Generate DLEQ proof for amount=500 (this is a valid DLEQ, but the range
-	// proof for remaining balance = -400 cannot be valid).
 	transcript := k.BuildTranscriptForTest(ctx, alice, "", "uatom")
 	dleqProof, err := elgamal.ProveDLEQ(&aliceSk, &alicePk, &ct, 500, transcript, nil)
 	require.NoError(t, err)
 	dleqBytes := dleqProof.Marshal()
 
-	// Provide a garbage range proof — range proof verification will fail.
+	// The real remaining balance is 100 - 500 = -400, which no range proof can
+	// cover. So claim it is 0 instead. Before commitments were bound to their
+	// ciphertexts this succeeded: the sender knows sk, so the ElGamal C2 could
+	// be re-opened to any value and the range proof was vacuous.
+	var remainingR fr.Element
+	remainingR.Sub(&shieldR, &r)
+	up := buildUnshieldProofs(t, k, ctx, alice, "uatom", &alicePk,
+		&ct, &availCt, 0, &remainingR, 64)
+
 	_, err = msgServer.Unshield(ctx, &types.MsgUnshield{
-		Sender:          alice,
-		Denom:           "uatom",
-		Amount:          "500",
-		Ciphertext:      ctBytes,
-		RangeProof:      make([]byte, 100),
-		DecryptionProof: dleqBytes,
+		Sender:                   alice,
+		Denom:                    "uatom",
+		Amount:                   "500",
+		Ciphertext:               ctBytes,
+		RangeProof:               up.RangeProof,
+		DecryptionProof:          dleqBytes,
+		RemainingCommitment:      up.RemainingCommitment,
+		RemainingCommitmentProof: up.RemainingCommitmentProof,
 	})
-	require.Error(t, err)
+	require.Error(t, err, "overdrawing must be rejected")
 	require.ErrorIs(t, err, types.ErrInvalidProof)
 }
 
@@ -463,14 +478,14 @@ func TestUnshield_ZeroAmount(t *testing.T) {
 	k, _, ctx := setupTestKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	_, alicePk, err := elgamal.KeyGen(rand.Reader)
+	aliceSk, alicePk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	require.NoError(t, k.SetParams(ctx, defaultParams(elgamal.MarshalPublicKey(&auditorPk))))
 
 	alice := sdk.AccAddress([]byte("alice_______________")).String()
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
 
 	_, err = msgServer.Unshield(ctx, &types.MsgUnshield{
 		Sender:          alice,
@@ -602,7 +617,7 @@ func TestSend_WrongAuditorKey(t *testing.T) {
 
 	aliceSk, alicePk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
-	_, bobPk, err := elgamal.KeyGen(rand.Reader)
+	bobSk, bobPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
 	_, auditorPk, err := elgamal.KeyGen(rand.Reader)
 	require.NoError(t, err)
@@ -616,8 +631,8 @@ func TestSend_WrongAuditorKey(t *testing.T) {
 	bob := sdk.AccAddress([]byte("bob_________________")).String()
 	bankKeeper.fundAccount(alice, "uatom", 10000)
 
-	registerAccount(t, msgServer, ctx, alice, elgamal.MarshalPublicKey(&alicePk))
-	registerAccount(t, msgServer, ctx, bob, elgamal.MarshalPublicKey(&bobPk))
+	registerAccount(t, msgServer, k, ctx, alice, &aliceSk, &alicePk)
+	registerAccount(t, msgServer, k, ctx, bob, &bobSk, &bobPk)
 
 	// Shield first so Alice has a balance.
 	shieldAccount(t, k, msgServer, ctx, aliceSk, alicePk, alice, 1000)

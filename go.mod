@@ -167,7 +167,9 @@ replace (
 	// Go 1.26 compatibility (remove when cosmossdk.io/log is updated)
 	github.com/bytedance/sonic => github.com/bytedance/sonic v1.15.0
 
-	// Module path differs from repo name (bulletproofs-bn25 vs bulletproofs-bn254)
-	github.com/nixprotocol/bulletproofs-bn254 => github.com/nixprotocol/bulletproofs-bn25 v0.0.0-20260412114832-9c685aa41241
-	github.com/nixprotocol/elgamal-bn254 => github.com/nixprotocol/elgamal-bn254 v0.0.0-20260412100525-2809245ca8ca
+	// Local sibling checkouts, matching how nix-cosmos-sdk and the chain itself
+	// resolve these. Pinning published pseudo-versions here meant this module's
+	// own tests ran against different crypto than the chain builds with.
+	github.com/nixprotocol/bulletproofs-bn254 => ../bulletproofs-bn254
+	github.com/nixprotocol/elgamal-bn254 => ../elgamal-bn254
 )

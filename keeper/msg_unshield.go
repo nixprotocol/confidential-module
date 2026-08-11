@@ -75,7 +75,7 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 		return nil, err
 	}
 
-	// 9. Compute remaining balance commitment for range proof.
+	// 9. Compute the remaining balance ciphertext.
 	availBytes, err := k.GetAvailableBalance(ctx, addrBytes, msg.Denom)
 	if err != nil {
 		return nil, err
@@ -86,14 +86,28 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 	}
 	remainingCt := elgamal.Sub(availCt, ct)
 
-	commitments := []bn254.G1Affine{remainingCt.C2}
-
-	// 10. Verify range proof: remaining balance >= 0.
-	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, &pk, int(params.MaxTransferBits), msg.Sender, "", msg.Denom); err != nil {
+	// 10. The range proof runs over a Pedersen commitment blinded by a
+	// nothing-up-my-sleeve base, not over remainingCt.C2. C2's blinding base is
+	// the sender's own public key, whose discrete log the sender knows, so C2
+	// can be re-opened to any value and a range proof over it would prove
+	// nothing. The commitment-equality proof ties the commitment back to
+	// remainingCt.
+	remainingCommitment, err := unmarshalCommitment(msg.RemainingCommitment)
+	if err != nil {
+		return nil, types.ErrInvalidCiphertext.Wrap("remaining_commitment: " + err.Error())
+	}
+	if err := k.verifyCommitmentEquality(ctx, msg.RemainingCommitmentProof, &pk, &remainingCt,
+		&remainingCommitment, commitmentRoleRemaining, msg.Sender, "", msg.Denom); err != nil {
 		return nil, err
 	}
 
-	// 11. Update available balance: available -= ciphertext.
+	// 11. Verify range proof: remaining balance is in range (did not go negative).
+	commitments := []bn254.G1Affine{remainingCommitment}
+	if err := k.verifyAggregateRange(ctx, msg.RangeProof, commitments, RangeProofBlindingBase(), int(params.MaxTransferBits), msg.Sender, "", msg.Denom); err != nil {
+		return nil, err
+	}
+
+	// 12. Update available balance: available -= ciphertext.
 	newAvail, err := subCiphertexts(availBytes, msg.Ciphertext)
 	if err != nil {
 		return nil, types.ErrInvalidCiphertext.Wrap(err.Error())
@@ -102,13 +116,13 @@ func (k msgServer) Unshield(goCtx context.Context, msg *types.MsgUnshield) (*typ
 		return nil, err
 	}
 
-	// 12. Credit plaintext tokens back to x/bank.
+	// 13. Credit plaintext tokens back to x/bank.
 	coin := sdk.NewCoin(msg.Denom, amt)
 	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleAccountName, senderAddr, sdk.NewCoins(coin)); err != nil {
 		return nil, types.ErrInsufficientBalance.Wrap(err.Error())
 	}
 
-	// 13. Emit event (plaintext amount is public for unshield operations).
+	// 14. Emit event (plaintext amount is public for unshield operations).
 	eventAttrs := []sdk.Attribute{
 		sdk.NewAttribute(types.AttributeKeySender, msg.Sender),
 		sdk.NewAttribute(types.AttributeKeyDenom, msg.Denom),
