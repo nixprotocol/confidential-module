@@ -5,6 +5,9 @@ github.com/
 # Test artifacts
 coverage.out
 
-# Talk-prep build artifacts (reproducible via docs/talk-prep/generate_guide.py)
-docs/talk-prep/confidential-module-qa-guide.html
-docs/talk-prep/diagrams/*.png
+# Internal working material -- kept locally, never published.
+# Agent session state, brainstorm scratch, implementation plans/specs, and
+# personal talk preparation. None of it is part of the module.
+.superpowers/
+docs/superpowers/
+docs/talk-prep/
