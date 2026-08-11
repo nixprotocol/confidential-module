@@ -14,15 +14,18 @@ Add the following to your chain's `go.mod`:
 
 ```
 require (
-    github.com/nixprotocol/confidential-module v0.1.1
+    github.com/nixprotocol/confidential-module v0.1.2
     github.com/nixprotocol/elgamal-bn254       v0.1.0
     github.com/nixprotocol/bulletproofs-bn254  v0.1.1
 )
 ```
 
-> **Do not pin the `v0.1.0` versions of these two.**
-> `confidential-module v0.1.0` was published with `replace` directives pointing
-> at local filesystem paths, so it cannot be resolved by anyone else.
+> **Do not pin the earlier versions of these two.**
+> `confidential-module` v0.1.0 was published with `replace` directives pointing
+> at local filesystem paths, so it cannot be resolved by anyone else; v0.1.1 was
+> retired when this repository's history was rewritten. Both tags are gone from
+> GitHub, though `proxy.golang.org` still serves them, so builds already pinning
+> them will not break.
 > `bulletproofs-bn254 v0.1.0` resolves an earlier `elgamal-bn254` that still
 > accepted non-canonical curve point encodings, which leaves proof and ciphertext
 > bytes malleable.

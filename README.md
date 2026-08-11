@@ -9,11 +9,14 @@ auditor key gives regulated deployments a compliance view without making
 balances public.
 
 ```bash
-go get github.com/nixprotocol/confidential-module@v0.1.1
+go get github.com/nixprotocol/confidential-module@v0.1.2
 ```
 
-> **Use v0.1.1 or later.** `v0.1.0` is not resolvable — it was published with
-> `replace` directives pointing at local paths, so `go get` cannot build it.
+> **Use v0.1.2.** The two earlier tags have been withdrawn from this repository:
+> `v0.1.0` was published with `replace` directives pointing at local filesystem
+> paths and cannot be resolved by anyone, and `v0.1.1` was retired when history
+> was rewritten. Both remain fetchable from `proxy.golang.org`, so existing
+> builds that pin them keep working, but neither should be used for new work.
 
 ## Model
 
