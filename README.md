@@ -9,13 +9,18 @@ auditor key gives regulated deployments a compliance view without making
 balances public.
 
 ```bash
-go get github.com/nixprotocol/confidential-module@v0.1.3
+go get github.com/nixprotocol/confidential-module@v0.1.4
 ```
 
-> **Use v0.1.3.** Earlier versions do not build for consumers on Go 1.26: they
-> pinned the Go 1.26 fix for `bytedance/sonic` with a `replace` directive, which
-> Go honours only in the main module and ignores for imported packages. v0.1.3
-> carries it as a `require` bump instead.
+> **Use v0.1.4.** It fixes a break in the bundled browser client, which derived
+> the confidential spending key from the account's *public* key — so anyone could
+> recompute it and decrypt that account's balance. The Go API is unchanged from
+> v0.1.3.
+>
+> Do not use anything before v0.1.3 on Go 1.26: earlier versions pinned the
+> `bytedance/sonic` fix with a `replace` directive, which Go honours only in the
+> main module and ignores for imported packages, so they fail to compile for
+> consumers. v0.1.3 carries it as a `require` bump instead.
 
 > The two oldest tags have been withdrawn from this repository:
 > `v0.1.0` was published with `replace` directives pointing at local filesystem

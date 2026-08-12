@@ -14,7 +14,7 @@ Add the following to your chain's `go.mod`:
 
 ```
 require (
-    github.com/nixprotocol/confidential-module v0.1.3
+    github.com/nixprotocol/confidential-module v0.1.4
     github.com/nixprotocol/elgamal-bn254       v0.1.0
     github.com/nixprotocol/bulletproofs-bn254  v0.1.1
 )
@@ -150,28 +150,33 @@ The module supports genesis configuration via JSON. In your chain's genesis file
 {
     "confidential": {
         "params": {
-            "auditor_pub_key": "<64-byte hex-encoded ElGamal public key>",
-            "enabled_denoms": ["uatom", "ibc/<USDC_HASH>"],
-            "max_transfer_bits": 64,
-            "auditor_key_grace_period": 100,
-            "rotation_cooldown": 100,
-            "max_memo_size": 1024
+            "auditor_pub_key": "<base64-encoded 64-byte ElGamal public key>",
+            "max_transfer_bits": 64
         },
         "accounts": []
     }
 }
 ```
 
-Parameter descriptions:
+`Params` has exactly these two fields:
 
 | Parameter | Description | Recommended Value |
 |---|---|---|
-| `auditor_pub_key` | 64-byte hex ElGamal public key for the compliance auditor | Required if `enabled_denoms` is non-empty |
-| `enabled_denoms` | List of token denominations that can be shielded | Chain-specific (e.g., `["uatom"]`) |
+| `auditor_pub_key` | 64-byte ElGamal public key for the compliance auditor. Unset means no auditor data is required. | Deployment-specific |
 | `max_transfer_bits` | Bit width for range proofs (max 64) | `64` |
-| `auditor_key_grace_period` | Blocks during which the previous auditor key remains valid after rotation | `100` |
-| `rotation_cooldown` | Minimum blocks between key rotations per account | `100` |
-| `max_memo_size` | Maximum plaintext memo size in bytes (0-4096) | `1024` |
+
+> **There is no denom allowlist.** `enabled_denoms` was removed from the proto,
+> and nothing in the module checks `msg.Denom` against a list — `Shield` accepts
+> any bank denom. Setting it in genesis grants no control: `GenesisState` is
+> decoded with stdlib `encoding/json`, which silently discards unknown fields,
+> so the chain boots and the parameter simply does not exist. Restricting denoms
+> requires a module change, not configuration.
+>
+> `auditor_key_grace_period`, `rotation_cooldown` and `max_memo_size` were
+> removed along with it. Memo size is bounded by the `MaxEncryptedMemoSize`
+> constant (1116) enforced in `ValidateBasic`, not by a parameter.
+>
+> The genesis value is base64, not hex: std-json decodes `[]byte` from base64.
 
 ## Step 7: Generate Auditor Key
 
@@ -230,7 +235,7 @@ The client encrypts the amount under their public key, generates a DLEQ proof, a
 Transfer encrypted tokens to another registered user:
 
 ```
-tx confidential send <receiver> <denom> <sender-ct> <receiver-ct> <auditor-ct> <range-proof> <equality-proof> <receiver-key-counter>
+tx confidential send <receiver> <denom> <sender-update-hex> <receiver-update-hex> <auditor-update-hex> <range-proof-hex> <equality-proof-hex>
 ```
 
 The client creates three ciphertexts (sender, receiver, auditor) encrypting the same amount under each party's public key, proves equality via a zero-knowledge proof, and proves the transfer amount and remaining balance are non-negative via an aggregate range proof.
@@ -248,19 +253,15 @@ The client decrypts their pending balance, re-encrypts it with fresh randomness,
 Convert encrypted balances back to plaintext tokens in `x/bank`:
 
 ```
-tx confidential unshield <denom> <amount> <ciphertext-hex> <dleq-proof> <range-proof>
+tx confidential unshield <denom> <amount> <ciphertext-hex> <range-proof-hex> <decryption-proof-hex>
 ```
 
 The client proves the ciphertext encrypts the claimed amount (DLEQ proof) and that the remaining balance after withdrawal is non-negative (range proof).
 
-### 6. Rotate Key (Optional)
-Replace the account's ElGamal public key:
-
-```
-tx confidential rotate-key <new-pubkey-hex> <new-counter> <re-encrypted-balances> <equality2-proofs>
-```
-
-Requires all pending balances to be applied first. The client proves each balance was correctly re-encrypted under the new key.
+> **There is no key rotation.** `MsgRotateKey` and `tx confidential rotate-key`
+> do not exist; the message set is the six listed above. Registration is
+> permanent — see the comment in `keeper/msg_register_key.go`. An account that
+> needs a new ElGamal key must unshield and register a fresh account.
 
 ## Security Considerations
 
@@ -296,7 +297,7 @@ Requires all pending balances to be applied first. The client proves each balanc
 
 5. **All proof generation is client-side.** The chain never sees plaintext amounts for confidential operations. Only shield and unshield reveal amounts publicly (by design, since they interact with `x/bank`).
 
-6. **Deterministic zero-encryptions ensure consensus safety.** When the module creates encryptions of zero (during registration, apply-pending resets, and key rotation), it uses deterministic randomness derived from transaction context so all validators produce identical ciphertexts.
+6. **Deterministic zero-encryptions ensure consensus safety.** The module creates an encryption of zero in exactly one place — resetting the pending balance in `ApplyPending` — and derives the randomness from transaction context so every validator produces an identical ciphertext. Registration stores only the public key and initialises no balances; balances are lazily zero until first use.
 
 7. **Fiat-Shamir transcripts include chain context.** All proofs bind to `chain_id`, `sender`, `receiver`, and `denom` to prevent replay attacks across chains or between different operations.
 
@@ -348,11 +349,15 @@ The module charges gas for every proof verification, calibrated from benchmarks 
 
 | Message | Proof Gas | Formula |
 |---|---|---|
+| `MsgRegisterKey` | 30,000 | PoP |
 | `MsgShield` | 50,000 | DLEQ |
-| `MsgUnshield` | 178,000 | DLEQ + AggRange(64 bits × 1 commitment) |
-| `MsgConfidentialSend` | 506,000 | Equality + AggRange(64 bits × 2 commitments) |
+| `MsgUnshield` | 398,000 | DLEQ 50k + CommitmentEquality 70k + AggRange(150k base + 64×1×2k) |
+| `MsgConfidentialSend` | 646,000 | Equality 100k + 2× CommitmentEquality 140k + AggRange(150k base + 64×2×2k) |
 | `MsgApplyPending` | 70,000 | ApplyPending |
-| `MsgRotateKey` | 70,000 × N denoms | Equality2 per denom |
+
+These figures are derived from the handlers: each row lists exactly the
+`verify*` calls its message makes (see `keeper/msg_*.go`), priced with the
+constants in `keeper/verify.go`.
 
 These are proof-only costs. Standard Cosmos SDK tx overhead (signature verification, storage reads/writes) adds on top. The key principle: gas cost must exceed the computational cost of proof verification to prevent validators from being overwhelmed. Chains with slower validator hardware should increase the constants proportionally.
 
@@ -386,7 +391,18 @@ The default gas constants in `keeper/verify.go` are calibrated for Apple M1 Pro.
    )
    ```
 
-5. **Verify** that a `MsgConfidentialSend` with `MaxTransferBits=64` does not exceed your chain's block gas limit. With default constants, the proof gas alone is ~506,000.
+5. **Verify** that a `MsgConfidentialSend` with `MaxTransferBits=64` does not
+   exceed your chain's block gas limit. With default constants the proof gas
+   alone is ~646,000.
+
+   Check that a block gas limit is actually set. CometBFT defaults
+   `consensus.params.block.max_gas` to `-1`, meaning unlimited, and under that
+   default per-transaction gas metering does not bound a block at all — blocks
+   are capped only by `max_bytes`, so an attacker fills one with valid
+   proof-carrying transactions and every validator performs all of the
+   verification regardless of what each transaction paid. Size the limit from
+   the worst gas-to-CPU ratio you are willing to accept: a `MsgConfidentialSend`
+   is ~646,000 gas for ~10.6ms of verification, about 61 gas/µs.
 
 ### Parameter Bounds
 
@@ -394,10 +410,10 @@ The following governance-controlled parameters have enforced bounds to prevent m
 
 | Parameter | Min | Max | Default |
 |---|---|---|---|
-| `rotation_cooldown` | 1 | 1,000,000 | 100 |
-| `auditor_key_grace_period` | 1 | 1,000,000 | 100 |
 | `max_transfer_bits` | 1 | 64 | 64 |
-| `max_memo_size` | 0 | 4,096 | 1,024 |
+
+`max_transfer_bits` is the only bounded numeric parameter; `auditor_pub_key` is
+validated as an on-curve, non-identity point rather than range-checked.
 
 ## Auditor Key Rotation
 
@@ -411,39 +427,49 @@ The auditor ElGamal key can be rotated via governance. The module stores the pre
    # Store the new private key in the HSM before proceeding
    ```
 
-2. **Submit governance proposal** to update the auditor key:
+2. **Submit a governance proposal** carrying `MsgSetAuditorKey`. SDK v0.53 takes
+   a proposal JSON file rather than `--type` flags:
    ```bash
-   tx gov submit-proposal \
-     --type=sdk.MsgSetAuditorKey \
-     --authority=<gov-module-address> \
-     --pubkey=<new-64-byte-hex-pubkey>
+   tx gov submit-proposal proposal.json --from <key>
    ```
-   The `MsgSetAuditorKey` handler (restricted to the governance authority) will:
-   - Save the current key as `prev_auditor_pub_key`
-   - Set the new key as `auditor_pub_key`
-   - Record the rotation height as `auditor_rotation_height`
+   where `proposal.json` contains a `MsgSetAuditorKey` with `authority` set to
+   the gov module address and `pubkey` set to the new 64-byte key.
 
-3. **Grace period** (`auditor_key_grace_period` blocks, default 100):
-   - The previous key is stored in params and remains available for auditors to decrypt ciphertexts created before the rotation
-   - New transactions use the new auditor key for their auditor ciphertext
-   - Auditor infrastructure should monitor both keys during this window
+   The handler checks the authority, validates the key is on-curve and not the
+   identity, and **overwrites** `auditor_pub_key`. That is the whole operation.
 
-4. **After the grace period**:
-   - The previous key is still stored in params but clients should only use the current key
-   - The auditor should retain the old private key permanently to decrypt historical ciphertexts from before the rotation
-   - A subsequent rotation will overwrite `prev_auditor_pub_key` with the current key
+3. **There is no grace period, and no previous key is retained.** The module
+   stores a single auditor key. `prev_auditor_pub_key`,
+   `auditor_rotation_height` and `auditor_key_grace_period` do not exist — they
+   were removed from the proto along with the rest of the rotation machinery.
+
+   The verifier pins the auditor key to the current parameter value, so a
+   transaction proving against the old key fails from the block the change
+   lands. The effect of a rotation is that in-flight transactions built against
+   the old key are rejected. That is a liveness cost, not a safety one: a user
+   cannot move value while encrypting to an old or attacker-chosen auditor key.
 
 ### Important Notes
 
-- **Never discard old auditor private keys.** Each key is needed to decrypt ciphertexts created during its tenure. Historical audit capability requires all past keys.
-- **Coordinate with clients.** Clients query the current `auditor_pub_key` from params when constructing `MsgConfidentialSend`. Ensure clients refresh params after a rotation vote passes.
-- **Grace period should exceed max transaction latency.** Set `auditor_key_grace_period` higher than the maximum expected time between transaction creation and inclusion (typically 100-1000 blocks).
+- **Never discard old auditor private keys.** Each is needed to decrypt
+  ciphertexts created during its tenure. The chain does not retain past public
+  keys, so the auditor must keep its own records.
+- **Coordinate with clients before the vote lands.** Clients read
+  `auditor_pub_key` from params when building `MsgConfidentialSend`. Because
+  there is no grace window, any client still using the old key starts failing
+  immediately. Ensure clients refresh params, and prefer a low-traffic window.
 
 ## Known Limitations
 
-- **No gRPC/REST endpoints in v1.** The module registers CLI commands and a direct keeper API, but full gRPC service registration requires protobuf service descriptors (planned for v2). Queries are accessible via CLI commands.
+- **No REST (gRPC-gateway) routes.** `RegisterGRPCGatewayRoutes` is empty, so
+  there are no HTTP/JSON endpoints; generating them needs a separate
+  `protoc-gen-grpc-gateway` pass. gRPC and CLI both work.
 
-- **Proto definitions planned for v2.** The current module uses manual Go types and JSON serialization rather than protobuf-generated types. This means `RegisterServices` is a no-op and the module cannot be discovered via gRPC reflection.
+  Note this is the *only* part of the RPC surface that is missing.
+  `RegisterServices` registers real `Msg` and `Query` servers, and the types are
+  protobuf-generated (`types/tx.pb.go`, `types/query.pb.go`,
+  `types/types.pb.go`) — earlier revisions of this document claimed the
+  opposite on both counts.
 
 - **Self-sends are rejected.** `ValidateBasic` rejects `MsgConfidentialSend` where sender equals receiver. Use shield/unshield to adjust your own balance.
 
