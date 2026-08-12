@@ -119,8 +119,8 @@ func FuzzApplyPendingProofUnmarshal(f *testing.F) {
 
 func FuzzAggregateRangeProofUnmarshal(f *testing.F) {
 	f.Add(make([]byte, 0))
-	f.Add(make([]byte, 4))                  // just header
-	f.Add(make([]byte, 228))                // header + min IP
+	f.Add(make([]byte, 4))                                  // just header
+	f.Add(make([]byte, 228))                                // header + min IP
 	f.Add(append([]byte{0, 0, 0, 7}, make([]byte, 700)...)) // 7 rounds + data
 
 	f.Fuzz(func(t *testing.T, data []byte) {

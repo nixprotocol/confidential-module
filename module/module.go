@@ -23,7 +23,7 @@ var (
 	_ module.AppModule  = (*AppModule)(nil)
 	_ module.HasGenesis = (*AppModule)(nil)
 
-	_ appmodule.AppModule       = (*AppModule)(nil)
+	_ appmodule.AppModule = (*AppModule)(nil)
 )
 
 // AppModule implements the Cosmos SDK AppModule interface for the confidential module.

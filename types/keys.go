@@ -25,7 +25,7 @@ var (
 func ParamsKeyBytes() []byte { return copyBytes(paramsKey) }
 
 // Prefix accessors for iteration during genesis export.
-func AccountPubkeyPrefix() []byte   { return copyBytes(accountPubkeyPrefix) }
+func AccountPubkeyPrefix() []byte    { return copyBytes(accountPubkeyPrefix) }
 func AvailableBalancePrefix() []byte { return copyBytes(availableBalancePrefix) }
 func PendingBalancePrefix() []byte   { return copyBytes(pendingBalancePrefix) }
 func PendingIsZeroPrefix() []byte    { return copyBytes(pendingIsZeroPrefix) }

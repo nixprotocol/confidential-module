@@ -678,4 +678,3 @@ func TestSend_WrongAuditorKey(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInvalidProof)
 }
-

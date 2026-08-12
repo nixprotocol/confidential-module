@@ -16,4 +16,3 @@ func DeterministicZeroEncryptForTest(pk *bn254.G1Affine, addr []byte, denom stri
 func (k Keeper) BuildTranscriptForTest(ctx context.Context, sender, receiver, denom string) *elgamal.Transcript {
 	return k.buildTranscript(ctx, sender, receiver, denom)
 }
-

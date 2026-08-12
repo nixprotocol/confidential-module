@@ -5,13 +5,14 @@ import "cosmossdk.io/errors"
 // Error codes aligned with spec Section 5.7.
 //
 // Reserved codes (removed, do not reuse):
-//   1005 — was ErrDenomNotEnabled (denom whitelist removed)
-//   1009 — was ErrRangeProofFailed (merged into ErrInvalidProof to prevent oracle attacks)
-//   1010 — was ErrEqualityProofFailed (same reason)
-//   1014 — was ErrInvalidCounter (key rotation removed)
-//   1015 — was ErrReceiverKeyRotated (key rotation removed)
-//   1016 — was ErrRotationCooldown (key rotation removed)
-//   1018 — was ErrPendingNotZero (key rotation removed)
+//
+//	1005 — was ErrDenomNotEnabled (denom whitelist removed)
+//	1009 — was ErrRangeProofFailed (merged into ErrInvalidProof to prevent oracle attacks)
+//	1010 — was ErrEqualityProofFailed (same reason)
+//	1014 — was ErrInvalidCounter (key rotation removed)
+//	1015 — was ErrReceiverKeyRotated (key rotation removed)
+//	1016 — was ErrRotationCooldown (key rotation removed)
+//	1018 — was ErrPendingNotZero (key rotation removed)
 var (
 	ErrInvalidPubkey        = errors.Register(ModuleName, 1001, "invalid public key")
 	ErrKeyAlreadyRegistered = errors.Register(ModuleName, 1002, "key already registered")
