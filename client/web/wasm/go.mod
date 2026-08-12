@@ -4,9 +4,9 @@ go 1.24.0
 
 require (
 	github.com/consensys/gnark-crypto v0.19.2
-	github.com/nixprotocol/bulletproofs-bn254 v0.0.0
+	github.com/nixprotocol/bulletproofs-bn254 v0.1.1
 	github.com/nixprotocol/confidential-module v0.0.0
-	github.com/nixprotocol/elgamal-bn254 v0.0.0
+	github.com/nixprotocol/elgamal-bn254 v0.1.0
 	golang.org/x/crypto v0.45.0
 )
 

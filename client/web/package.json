@@ -8,7 +8,7 @@
     "build": "npm run wasm:check && tsc -b && vite build",
     "preview": "vite preview",
     "wasm": "cd wasm && ./build.sh",
-    "wasm:check": "node -e \"const fs=require('fs'); const src=fs.statSync('wasm/main.go').mtimeMs; const bin=fs.existsSync('public/crypto.wasm')?fs.statSync('public/crypto.wasm').mtimeMs:0; if(src>bin){console.log('WASM outdated, rebuilding...');process.exit(1);}\" || npm run wasm"
+    "wasm:check": "node -e \"const {execSync}=require('child_process');const fs=require('fs');const f='public/crypto.wasm.srchash';if(!fs.existsSync('public/crypto.wasm')||!fs.existsSync(f)){console.log('WASM missing or unstamped, rebuilding...');process.exit(1)}const cur=execSync('shasum -a 256 main.go go.mod go.sum | shasum -a 256',{cwd:'wasm'}).toString().split(' ')[0];const rec=fs.readFileSync(f,'utf8').trim();if(cur!==rec){console.log('WASM was built from different source, rebuilding...');process.exit(1)}\" || npm run wasm"
   },
   "dependencies": {
     "@cosmjs/amino": "^0.32.4",
