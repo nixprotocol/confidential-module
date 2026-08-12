@@ -3,7 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "Building crypto.wasm..."
-GOOS=js GOARCH=wasm go build -o ../public/crypto.wasm .
+# -trimpath keeps absolute build paths out of the binary. Without it the
+# committed wasm embeds the builder's module cache paths (51 of them, naming
+# a home directory) and differs per machine for no functional reason.
+GOOS=js GOARCH=wasm go build -trimpath -o ../public/crypto.wasm .
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../public/
 
 # Record what the binary was built from.
@@ -17,7 +20,7 @@ cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../public/
 #
 # mtimes cannot detect that. Git does not preserve them, so after a clone they
 # reflect checkout order rather than edit order.
-shasum -a 256 main.go go.mod go.sum | shasum -a 256 | awk '{print $1}' > ../public/crypto.wasm.srchash
+shasum -a 256 main.go go.mod go.sum build.sh | shasum -a 256 | awk '{print $1}' > ../public/crypto.wasm.srchash
 
 echo "crypto.wasm: $(ls -lh ../public/crypto.wasm | awk '{print $5}')"
 echo "source hash: $(cat ../public/crypto.wasm.srchash)"
